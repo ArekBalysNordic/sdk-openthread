@@ -2211,12 +2211,16 @@ void Mac::LogFrameRxFailure(const RxFrame *aFrame, Error aError) const
 {
     LogLevel logLevel;
 
+    if (aError == kErrorDestinationAddressFiltered)
+    {
+        return;
+    }
+
     switch (aError)
     {
     case kErrorAbort:
     case kErrorNoFrameReceived:
     case kErrorAddressFiltered:
-    case kErrorDestinationAddressFiltered:
         logLevel = kLogLevelDebg;
         break;
 
