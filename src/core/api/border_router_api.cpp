@@ -37,8 +37,6 @@
 
 #include <openthread/border_router.h>
 
-#include "border_router/routing_manager.hpp"
-#include "common/debug.hpp"
 #include "instance/instance.hpp"
 
 using namespace ot;
@@ -89,7 +87,7 @@ otError otBorderRouterGetNextOnMeshPrefix(otInstance            *aInstance,
 {
     AssertPointerIsNotNull(aIterator);
 
-    return AsCoreType(aInstance).Get<NetworkData::Local>().GetNextOnMeshPrefix(*aIterator, AsCoreType(aConfig));
+    return AsCoreType(aInstance).Get<NetworkData::Local>().GetNext(*aIterator, AsCoreType(aConfig));
 }
 
 otError otBorderRouterAddRoute(otInstance *aInstance, const otExternalRouteConfig *aConfig)
@@ -108,7 +106,7 @@ otError otBorderRouterGetNextRoute(otInstance            *aInstance,
 {
     AssertPointerIsNotNull(aIterator);
 
-    return AsCoreType(aInstance).Get<NetworkData::Local>().GetNextExternalRoute(*aIterator, AsCoreType(aConfig));
+    return AsCoreType(aInstance).Get<NetworkData::Local>().GetNext(*aIterator, AsCoreType(aConfig));
 }
 
 otError otBorderRouterRegister(otInstance *aInstance)

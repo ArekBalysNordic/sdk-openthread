@@ -31,8 +31,8 @@
  *   This file contains definitions for the CLI interpreter.
  */
 
-#ifndef CLI_DATASET_HPP_
-#define CLI_DATASET_HPP_
+#ifndef OT_CLI_CLI_DATASET_HPP_
+#define OT_CLI_CLI_DATASET_HPP_
 
 #include "openthread-core-config.h"
 
@@ -47,7 +47,6 @@ namespace Cli {
 
 /**
  * Implements the Dataset CLI interpreter.
- *
  */
 class Dataset : private Utils
 {
@@ -67,7 +66,6 @@ public:
      * @retval OT_ERROR_INVALID_COMMAND   Invalid or unknown CLI command.
      * @retval OT_ERROR_INVALID_ARGS      Invalid arguments.
      * @retval ...                        Error during execution of the CLI command.
-     *
      */
     otError Process(Arg aArgs[]);
 
@@ -94,6 +92,7 @@ private:
 
     void OutputActiveTimestamp(const otOperationalDataset &aDataset);
     void OutputChannel(const otOperationalDataset &aDataset);
+    void OutputWakeupChannel(const otOperationalDataset &aDataset);
     void OutputChannelMask(const otOperationalDataset &aDataset);
     void OutputDelay(const otOperationalDataset &aDataset);
     void OutputExtendedPanId(const otOperationalDataset &aDataset);
@@ -107,6 +106,7 @@ private:
 
     otError ParseActiveTimestamp(Arg *&aArgs, otOperationalDataset &aDataset);
     otError ParseChannel(Arg *&aArgs, otOperationalDataset &aDataset);
+    otError ParseWakeupChannel(Arg *&aArgs, otOperationalDataset &aDataset);
     otError ParseChannelMask(Arg *&aArgs, otOperationalDataset &aDataset);
     otError ParseDelay(Arg *&aArgs, otOperationalDataset &aDataset);
     otError ParseExtendedPanId(Arg *&aArgs, otOperationalDataset &aDataset);
@@ -124,7 +124,7 @@ private:
 
     template <CommandId kCommandId> otError Process(Arg aArgs[]);
 
-    otError Print(otOperationalDatasetTlvs &aDatasetTlvs);
+    otError Print(otOperationalDatasetTlvs &aDatasetTlvs, bool aNonsensitiveOnly);
 
 #if OPENTHREAD_CONFIG_DATASET_UPDATER_ENABLE && OPENTHREAD_FTD
     otError     ProcessUpdater(Arg aArgs[]);
@@ -141,4 +141,4 @@ private:
 } // namespace Cli
 } // namespace ot
 
-#endif // CLI_DATASET_HPP_
+#endif // OT_CLI_CLI_DATASET_HPP_

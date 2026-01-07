@@ -31,8 +31,8 @@
  *   This file includes definitions for performing AES-CCM computations.
  */
 
-#ifndef AES_CCM_HPP_
-#define AES_CCM_HPP_
+#ifndef OT_CORE_CRYPTO_AES_CCM_HPP_
+#define OT_CORE_CRYPTO_AES_CCM_HPP_
 
 #include "openthread-core-config.h"
 
@@ -53,12 +53,10 @@ namespace Crypto {
  * @addtogroup core-security
  *
  * @{
- *
  */
 
 /**
  * Implements AES CCM computation.
- *
  */
 class AesCcm
 {
@@ -69,7 +67,6 @@ public:
 
     /**
      * Type represent the encryption vs decryption mode.
-     *
      */
     enum Mode : uint8_t
     {
@@ -81,7 +78,6 @@ public:
      * Sets the key.
      *
      * @param[in]  aKey    Crypto Key used in AES operation
-     *
      */
     void SetKey(const Key &aKey) { mEcb.SetKey(aKey); }
 
@@ -90,7 +86,6 @@ public:
      *
      * @param[in]  aKey        A pointer to the key.
      * @param[in]  aKeyLength  Length of the key in bytes.
-     *
      */
     void SetKey(const uint8_t *aKey, uint16_t aKeyLength);
 
@@ -98,7 +93,6 @@ public:
      * Sets the key.
      *
      * @param[in]  aMacKey        Key Material for AES operation.
-     *
      */
     void SetKey(const Mac::KeyMaterial &aMacKey);
 
@@ -110,7 +104,6 @@ public:
      * @param[in]  aTagLength        Length of tag in bytes (must be even and in `[kMinTagLength, kMaxTagLength]`).
      * @param[in]  aNonce            A pointer to the nonce.
      * @param[in]  aNonceLength      Length of nonce in bytes.
-     *
      */
     void Init(uint32_t    aHeaderLength,
               uint32_t    aPlainTextLength,
@@ -123,7 +116,6 @@ public:
      *
      * @param[in]  aHeader        A pointer to the header.
      * @param[in]  aHeaderLength  Length of header in bytes.
-     *
      */
     void Header(const void *aHeader, uint32_t aHeaderLength);
 
@@ -133,7 +125,6 @@ public:
      * @tparam    ObjectType   The object type.
      *
      * @param[in] aObject      A reference to the object to add to header.
-     *
      */
     template <typename ObjectType> void Header(const ObjectType &aObject)
     {
@@ -145,15 +136,17 @@ public:
     /**
      * Processes the payload.
      *
+     * When decrypting (`kDecrypt`), @p aPlainText can be `nullptr` if the decrypted plaintext is not needed.
+     * Similarly, when encrypting (`kEncrypt`), @p aCipherText can be `nullptr` if the ciphertext is not needed.
+     *
      * @param[in,out]  aPlainText   A pointer to the plaintext.
      * @param[in,out]  aCipherText  A pointer to the ciphertext.
      * @param[in]      aLength      Payload length in bytes.
      * @param[in]      aMode        Mode to indicate whether to encrypt (`kEncrypt`) or decrypt (`kDecrypt`).
-     *
      */
     void Payload(void *aPlainText, void *aCipherText, uint32_t aLength, Mode aMode);
 
-#if !OPENTHREAD_RADIO
+#if OPENTHREAD_FTD || OPENTHREAD_MTD
     /**
      * Processes the payload within a given message.
      *
@@ -163,7 +156,6 @@ public:
      * @param[in]      aOffset      The offset in @p aMessage to start of payload.
      * @param[in]      aLength      Payload length in bytes.
      * @param[in]      aMode        Mode to indicate whether to encrypt (`kEncrypt`) or decrypt (`kDecrypt`).
-     *
      */
     void Payload(Message &aMessage, uint16_t aOffset, uint16_t aLength, Mode aMode);
 #endif
@@ -172,7 +164,6 @@ public:
      * Returns the tag length in bytes.
      *
      * @returns The tag length in bytes.
-     *
      */
     uint8_t GetTagLength(void) const { return mTagLength; }
 
@@ -180,7 +171,6 @@ public:
      * Generates the tag.
      *
      * @param[out]  aTag        A pointer to the tag (must have `GetTagLength()` bytes).
-     *
      */
     void Finalize(void *aTag);
 
@@ -191,7 +181,6 @@ public:
      * @param[in]  aFrameCounter   A frame counter.
      * @param[in]  aSecurityLevel  A security level.
      * @param[out] aNonce          A buffer (with `kNonceSize` bytes) to place the generated nonce.
-     *
      */
     static void GenerateNonce(const Mac::ExtAddress &aAddress,
                               uint32_t               aFrameCounter,
@@ -215,10 +204,9 @@ private:
 
 /**
  * @}
- *
  */
 
 } // namespace Crypto
 } // namespace ot
 
-#endif // AES_CCM_HPP_
+#endif // OT_CORE_CRYPTO_AES_CCM_HPP_

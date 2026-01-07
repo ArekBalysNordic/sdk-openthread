@@ -29,13 +29,11 @@
 /**
  * @file
  *   This file implements Network Name management.
- *
  */
 
 #include "network_name.hpp"
 
-#include "common/locator_getters.hpp"
-#include "common/notifier.hpp"
+#include "instance/instance.hpp"
 
 namespace ot {
 namespace MeshCoP {
@@ -91,13 +89,13 @@ Error NetworkName::Set(const NameData &aNameData)
     data.SetLength(newLen);
 
     // Ensure the new name does not match the current one.
-    if (data.MatchesBytesIn(m8) && m8[newLen] == '\0')
+    if (data.MatchesBytesIn(m8) && m8[newLen] == kNullChar)
     {
         ExitNow(error = kErrorAlready);
     }
 
     data.CopyBytesTo(m8);
-    m8[newLen] = '\0';
+    m8[newLen] = kNullChar;
 
 exit:
     return error;
@@ -158,6 +156,11 @@ Error NetworkNameManager::SetDomainName(const NameData &aNameData)
     Error error = mDomainName.Set(aNameData);
 
     return (error == kErrorAlready) ? kErrorNone : error;
+}
+
+bool NetworkNameManager::IsDefaultDomainNameSet(void) const
+{
+    return StringMatch(mDomainName.GetAsCString(), NetworkName::kDomainNameInit);
 }
 #endif // (OPENTHREAD_CONFIG_THREAD_VERSION >= OT_THREAD_VERSION_1_2)
 

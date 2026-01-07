@@ -31,8 +31,8 @@
  *   This file includes definitions for MAC types.
  */
 
-#ifndef MAC_TYPES_HPP_
-#define MAC_TYPES_HPP_
+#ifndef OT_CORE_MAC_MAC_TYPES_HPP_
+#define OT_CORE_MAC_MAC_TYPES_HPP_
 
 #include "openthread-core-config.h"
 
@@ -41,6 +41,7 @@
 
 #include <openthread/link.h>
 #include <openthread/thread.h>
+#include <openthread/provisional/link.h>
 
 #include "common/as_core_type.hpp"
 #include "common/clearable.hpp"
@@ -50,18 +51,23 @@
 #include "crypto/storage.hpp"
 
 namespace ot {
+
+#if OPENTHREAD_FTD || OPENTHREAD_MTD
+namespace Ip6 {
+class InterfaceIdentifier;
+}
+#endif
+
 namespace Mac {
 
 /**
  * @addtogroup core-mac
  *
  * @{
- *
  */
 
 /**
  * Represents the IEEE 802.15.4 PAN ID.
- *
  */
 typedef otPanId PanId;
 
@@ -69,24 +75,26 @@ constexpr PanId kPanIdBroadcast = 0xffff; ///< Broadcast PAN ID.
 
 /**
  * Represents the IEEE 802.15.4 Short Address.
- *
  */
 typedef otShortAddress ShortAddress;
 
-constexpr ShortAddress kShortAddrBroadcast = 0xffff; ///< Broadcast Short Address.
-constexpr ShortAddress kShortAddrInvalid   = 0xfffe; ///< Invalid Short Address.
+constexpr ShortAddress kShortAddrBroadcast = OT_RADIO_BROADCAST_SHORT_ADDR; ///< Broadcast Short Address.
+constexpr ShortAddress kShortAddrInvalid   = OT_RADIO_INVALID_SHORT_ADDR;   ///< Invalid Short Address.
+
+/**
+ * Represents the wake-up identifier.
+ */
+typedef otWakeupId WakeupId;
 
 /**
  * Generates a random IEEE 802.15.4 PAN ID.
  *
  * @returns A randomly generated IEEE 802.15.4 PAN ID (excluding `kPanIdBroadcast`).
- *
  */
 PanId GenerateRandomPanId(void);
 
 /**
  * Represents an IEEE 802.15.4 Extended Address.
- *
  */
 OT_TOOL_PACKED_BEGIN
 class ExtAddress : public otExtAddress, public Equatable<ExtAddress>, public Clearable<ExtAddress>
@@ -96,13 +104,11 @@ public:
 
     /**
      * Defines the fixed-length `String` object returned from `ToString()`.
-     *
      */
     typedef String<kInfoStringSize> InfoString;
 
     /**
      * Type specifies the copy byte order when Extended Address is being copied to/from a buffer.
-     *
      */
     enum CopyByteOrder : uint8_t
     {
@@ -114,15 +120,22 @@ public:
      * Fills all bytes of address with a given byte value.
      *
      * @param[in] aByte A byte value to fill address with.
-     *
      */
     void Fill(uint8_t aByte) { memset(this, aByte, sizeof(*this)); }
 
+#if OPENTHREAD_FTD || OPENTHREAD_MTD
     /**
      * Generates a random IEEE 802.15.4 Extended Address.
-     *
      */
     void GenerateRandom(void);
+
+    /**
+     * Sets the Extended Address from a given IPv6 Address Interface Identifier.
+     *
+     * @param[in] aIid   The IPv6 Interface Identifier to convert to Extended Address.
+     */
+    void SetFromIid(const Ip6::InterfaceIdentifier &aIid);
+#endif
 
     /**
      * Sets the Extended Address from a given byte array.
@@ -130,7 +143,6 @@ public:
      * @param[in] aBuffer    Pointer to an array containing the Extended Address. `OT_EXT_ADDRESS_SIZE` bytes from
      *                       buffer are copied to form the Extended Address.
      * @param[in] aByteOrder The byte order to use when copying the address.
-     *
      */
     void Set(const uint8_t *aBuffer, CopyByteOrder aByteOrder = kNormalByteOrder)
     {
@@ -142,7 +154,6 @@ public:
      *
      * @retval TRUE   If the group bit is set.
      * @retval FALSE  If the group bit is not set.
-     *
      */
     bool IsGroup(void) const { return (m8[0] & kGroupFlag) != 0; }
 
@@ -150,7 +161,6 @@ public:
      * Sets the Group bit.
      *
      * @param[in]  aGroup  TRUE if group address, FALSE otherwise.
-     *
      */
     void SetGroup(bool aGroup)
     {
@@ -166,7 +176,6 @@ public:
 
     /**
      * Toggles the Group bit.
-     *
      */
     void ToggleGroup(void) { m8[0] ^= kGroupFlag; }
 
@@ -175,7 +184,6 @@ public:
      *
      * @retval TRUE   If the local bit is set.
      * @retval FALSE  If the local bit is not set.
-     *
      */
     bool IsLocal(void) const { return (m8[0] & kLocalFlag) != 0; }
 
@@ -183,7 +191,6 @@ public:
      * Sets the Local bit.
      *
      * @param[in]  aLocal  TRUE if locally administered, FALSE otherwise.
-     *
      */
     void SetLocal(bool aLocal)
     {
@@ -199,7 +206,6 @@ public:
 
     /**
      * Toggles the Local bit.
-     *
      */
     void ToggleLocal(void) { m8[0] ^= kLocalFlag; }
 
@@ -208,7 +214,6 @@ public:
      *
      * @param[out] aBuffer     A pointer to a buffer to copy the Extended Address into.
      * @param[in]  aByteOrder  The byte order to copy the address.
-     *
      */
     void CopyTo(uint8_t *aBuffer, CopyByteOrder aByteOrder = kNormalByteOrder) const
     {
@@ -216,10 +221,19 @@ public:
     }
 
     /**
+     * Overloads operator `==` to evaluate whether or not two `ExtAddress` instances are equal.
+     *
+     * @param[in]  aOther  The other `ExtAddress` instance to compare with.
+     *
+     * @retval TRUE   If the two `ExtAddress` instances are equal.
+     * @retval FALSE  If the two `ExtAddress` instances are not equal.
+     */
+    bool operator==(const ExtAddress &aOther) const;
+
+    /**
      * Converts an address to a string.
      *
      * @returns An `InfoString` containing the string representation of the Extended Address.
-     *
      */
     InfoString ToString(void) const;
 
@@ -232,20 +246,17 @@ private:
 
 /**
  * Represents an IEEE 802.15.4 Short or Extended Address.
- *
  */
 class Address
 {
 public:
     /**
      * Defines the fixed-length `String` object returned from `ToString()`.
-     *
      */
     typedef ExtAddress::InfoString InfoString;
 
     /**
      * Specifies the IEEE 802.15.4 Address type.
-     *
      */
     enum Type : uint8_t
     {
@@ -256,7 +267,6 @@ public:
 
     /**
      * Initializes an Address.
-     *
      */
     Address(void)
         : mType(kTypeNone)
@@ -267,7 +277,6 @@ public:
      * Gets the address type (Short Address, Extended Address, or none).
      *
      * @returns The address type.
-     *
      */
     Type GetType(void) const { return mType; }
 
@@ -275,7 +284,6 @@ public:
      * Indicates whether or not there is an address.
      *
      * @returns TRUE if there is no address (i.e. address type is `kTypeNone`), FALSE otherwise.
-     *
      */
     bool IsNone(void) const { return (mType == kTypeNone); }
 
@@ -283,7 +291,6 @@ public:
      * Indicates whether or not the Address is a Short Address.
      *
      * @returns TRUE if it is a Short Address, FALSE otherwise.
-     *
      */
     bool IsShort(void) const { return (mType == kTypeShort); }
 
@@ -291,7 +298,6 @@ public:
      * Indicates whether or not the Address is an Extended Address.
      *
      * @returns TRUE if it is an Extended Address, FALSE otherwise.
-     *
      */
     bool IsExtended(void) const { return (mType == kTypeExtended); }
 
@@ -301,7 +307,6 @@ public:
      * MUST be used only if the address type is Short Address.
      *
      * @returns The Short Address.
-     *
      */
     ShortAddress GetShort(void) const { return mShared.mShortAddress; }
 
@@ -311,7 +316,6 @@ public:
      * MUST be used only if the address type is Extended Address.
      *
      * @returns A constant reference to the Extended Address.
-     *
      */
     const ExtAddress &GetExtended(void) const { return mShared.mExtAddress; }
 
@@ -321,7 +325,6 @@ public:
      * MUST be used only if the address type is Extended Address.
      *
      * @returns A reference to the Extended Address.
-     *
      */
     ExtAddress &GetExtended(void) { return mShared.mExtAddress; }
 
@@ -329,7 +332,6 @@ public:
      * Sets the address to none (i.e., clears the address).
      *
      * Address type will be updated to `kTypeNone`.
-     *
      */
     void SetNone(void) { mType = kTypeNone; }
 
@@ -339,7 +341,6 @@ public:
      * The type is also updated to indicate that address is Short.
      *
      * @param[in]  aShortAddress  A Short Address
-     *
      */
     void SetShort(ShortAddress aShortAddress)
     {
@@ -353,7 +354,6 @@ public:
      * The type is also updated to indicate that the address is Extended.
      *
      * @param[in]  aExtAddress  An Extended Address
-     *
      */
     void SetExtended(const ExtAddress &aExtAddress)
     {
@@ -369,7 +369,6 @@ public:
      * @param[in] aBuffer    Pointer to an array containing the Extended Address. `OT_EXT_ADDRESS_SIZE` bytes from
      *                       buffer are copied to form the Extended Address.
      * @param[in] aByteOrder The byte order to copy the address from @p aBuffer.
-     *
      */
     void SetExtended(const uint8_t *aBuffer, ExtAddress::CopyByteOrder aByteOrder = ExtAddress::kNormalByteOrder)
     {
@@ -377,11 +376,19 @@ public:
         mType = kTypeExtended;
     }
 
+#if OPENTHREAD_FTD || OPENTHREAD_MTD
+    /**
+     * Sets the address as an Extended Address from a given IPv6 Address Interface Identifier.
+     *
+     * @param[in] aIid   The IPv6 Interface Identifier to convert to Extended Address.
+     */
+    void SetExtendedFromIid(const Ip6::InterfaceIdentifier &aIid);
+#endif
+
     /**
      * Indicates whether or not the address is a Short Broadcast Address.
      *
      * @returns TRUE if address is Short Broadcast Address, FALSE otherwise.
-     *
      */
     bool IsBroadcast(void) const { return ((mType == kTypeShort) && (GetShort() == kShortAddrBroadcast)); }
 
@@ -389,15 +396,23 @@ public:
      * Indicates whether or not the address is a Short Invalid Address.
      *
      * @returns TRUE if address is Short Invalid Address, FALSE otherwise.
-     *
      */
     bool IsShortAddrInvalid(void) const { return ((mType == kTypeShort) && (GetShort() == kShortAddrInvalid)); }
+
+    /**
+     * Overloads operator `==` to evaluate whether or not two `Address` instances are equal.
+     *
+     * @param[in]  aOther  The other `Address` instance to compare with.
+     *
+     * @retval TRUE   If the two `Address` instances are equal.
+     * @retval FALSE  If the two `Address` instances are not equal.
+     */
+    bool operator==(const Address &aOther) const;
 
     /**
      * Converts an address to a null-terminated string
      *
      * @returns A `String` representing the address.
-     *
      */
     InfoString ToString(void) const;
 
@@ -413,7 +428,6 @@ private:
 
 /**
  * Represents two MAC addresses corresponding to source and destination.
- *
  */
 struct Addresses
 {
@@ -423,14 +437,12 @@ struct Addresses
 
 /**
  * Represents two PAN IDs corresponding to source and destination.
- *
  */
 class PanIds : public Clearable<PanIds>
 {
 public:
     /**
      * Initializes PAN IDs as empty (no source or destination PAN ID).
-     *
      */
     PanIds(void) { Clear(); }
 
@@ -439,7 +451,6 @@ public:
      *
      * @retval TRUE   The source PAN ID is present.
      * @retval FALSE  The source PAN ID is not present.
-     *
      */
     bool IsSourcePresent(void) const { return mIsSourcePresent; }
 
@@ -447,7 +458,6 @@ public:
      * Gets the source PAN ID when it is present.
      *
      * @returns The source PAN ID.
-     *
      */
     PanId GetSource(void) const { return mSource; }
 
@@ -456,7 +466,6 @@ public:
      *
      * @retval TRUE   The destination PAN ID is present.
      * @retval FALSE  The destination PAN ID is not present.
-     *
      */
     bool IsDestinationPresent(void) const { return mIsDestinationPresent; }
 
@@ -464,7 +473,6 @@ public:
      * Gets the destination PAN ID when it is present.
      *
      * @returns The destination PAN ID.
-     *
      */
     PanId GetDestination(void) const { return mDestination; }
 
@@ -472,7 +480,6 @@ public:
      * Sets the source PAN ID.
      *
      * @param[in] aPanId  The source PAN ID.
-     *
      */
     void SetSource(PanId aPanId);
 
@@ -480,7 +487,6 @@ public:
      * Sets the destination PAN ID.
      *
      * @param[in] aPanId  The source PAN ID.
-     *
      */
     void SetDestination(PanId aPanId);
 
@@ -488,7 +494,6 @@ public:
      * Sets both source and destination PAN IDs to the same value.
      *
      * @param[in] aPanId  The PAN ID.
-     *
      */
     void SetBothSourceDestination(PanId aPanId);
 
@@ -501,7 +506,6 @@ private:
 
 /**
  * Represents a MAC key.
- *
  */
 OT_TOOL_PACKED_BEGIN
 class Key : public otMacKey, public Equatable<Key>, public Clearable<Key>
@@ -513,7 +517,6 @@ public:
      * Gets a pointer to the bytes array containing the key
      *
      * @returns A pointer to the byte array containing the key.
-     *
      */
     const uint8_t *GetBytes(void) const { return m8; }
 
@@ -521,20 +524,17 @@ public:
 
 /**
  * Represents a MAC Key Ref used by PSA.
- *
  */
 typedef otMacKeyRef KeyRef;
 
 /**
  * Represents a MAC Key Material.
- *
  */
 class KeyMaterial : public otMacKeyMaterial, public Unequatable<KeyMaterial>
 {
 public:
     /**
      * Initializes a `KeyMaterial`.
-     *
      */
     KeyMaterial(void)
     {
@@ -554,7 +554,6 @@ public:
      * @param[in] aOther  aOther  The other `KeyMaterial` instance to assign from.
      *
      * @returns A reference to the current `KeyMaterial`
-     *
      */
     KeyMaterial &operator=(const KeyMaterial &aOther);
 
@@ -566,7 +565,6 @@ public:
      *
      * Under `OPENTHREAD_CONFIG_PLATFORM_KEY_REFERENCES_ENABLE`, if the `KeyMaterial` currently stores a valid previous
      * `KeyRef`, the `Clear()` call will ensure to delete the previous `KeyRef` and set it to `kInvalidKeyRef`.
-     *
      */
     void Clear(void);
 
@@ -575,7 +573,6 @@ public:
      * Gets the literal `Key`.
      *
      * @returns The literal `Key`
-     *
      */
     const Key &GetKey(void) const { return static_cast<const Key &>(mKeyMaterial.mKey); }
 
@@ -584,7 +581,6 @@ public:
      * Gets the stored `KeyRef`
      *
      * @returns The `KeyRef`
-     *
      */
     KeyRef GetKeyRef(void) const { return mKeyMaterial.mKeyRef; }
 #endif
@@ -598,7 +594,6 @@ public:
      * @param[in] aKey           A reference to the new key.
      * @param[in] aIsExportable  Boolean indicating if the key is exportable (this is only applicable under
      *                           `OPENTHREAD_CONFIG_PLATFORM_KEY_REFERENCES_ENABLE` config).
-     *
      */
     void SetFrom(const Key &aKey, bool aIsExportable = false);
 
@@ -606,7 +601,6 @@ public:
      * Extracts the literal key from `KeyMaterial`
      *
      * @param[out] aKey  A reference to the output the key.
-     *
      */
     void ExtractKey(Key &aKey) const;
 
@@ -614,7 +608,6 @@ public:
      * Converts `KeyMaterial` to a `Crypto::Key`.
      *
      * @param[out]  aCryptoKey  A reference to a `Crypto::Key` to populate.
-     *
      */
     void ConvertToCryptoKey(Crypto::Key &aCryptoKey) const;
 
@@ -625,7 +618,6 @@ public:
      *
      * @retval TRUE   If the two `KeyMaterial` instances are equal.
      * @retval FALSE  If the two `KeyMaterial` instances are not equal.
-     *
      */
     bool operator==(const KeyMaterial &aOther) const;
 
@@ -644,7 +636,6 @@ private:
 
 /**
  * Defines the radio link types.
- *
  */
 enum RadioType : uint8_t
 {
@@ -658,14 +649,12 @@ enum RadioType : uint8_t
 
 /**
  * This constant specifies the number of supported radio link types.
- *
  */
 constexpr uint8_t kNumRadioTypes = (((OPENTHREAD_CONFIG_RADIO_LINK_IEEE_802_15_4_ENABLE) ? 1 : 0) +
                                     ((OPENTHREAD_CONFIG_RADIO_LINK_TREL_ENABLE) ? 1 : 0));
 
 /**
  * Represents a set of radio links.
- *
  */
 class RadioTypes
 {
@@ -674,19 +663,16 @@ public:
 
     /**
      * Defines the fixed-length `String` object returned from `ToString()`.
-     *
      */
     typedef String<kInfoStringSize> InfoString;
 
     /**
      * This static class variable defines an array containing all supported radio link types.
-     *
      */
     static const RadioType kAllRadioTypes[kNumRadioTypes];
 
     /**
      * Initializes a `RadioTypes` object as empty set
-     *
      */
     RadioTypes(void)
         : mBitMask(0)
@@ -697,7 +683,6 @@ public:
      * Initializes a `RadioTypes` object with a given bit-mask.
      *
      * @param[in] aMask   A bit-mask representing the radio types (the first bit corresponds to radio type 0, and so on)
-     *
      */
     explicit RadioTypes(uint8_t aMask)
         : mBitMask(aMask)
@@ -706,7 +691,6 @@ public:
 
     /**
      * Clears the set.
-     *
      */
     void Clear(void) { mBitMask = 0; }
 
@@ -714,7 +698,6 @@ public:
      * Indicates whether the set is empty or not
      *
      * @returns TRUE if the set is empty, FALSE otherwise.
-     *
      */
     bool IsEmpty(void) const { return (mBitMask == 0); }
 
@@ -722,7 +705,6 @@ public:
      *  This method indicates whether the set contains only a single radio type.
      *
      * @returns TRUE if the set contains a single radio type, FALSE otherwise.
-     *
      */
     bool ContainsSingleRadio(void) const { return !IsEmpty() && ((mBitMask & (mBitMask - 1)) == 0); }
 
@@ -732,7 +714,6 @@ public:
      * @param[in] aType  A radio link type.
      *
      * @returns TRUE if the set contains @p aType, FALSE otherwise.
-     *
      */
     bool Contains(RadioType aType) const { return ((mBitMask & BitFlag(aType)) != 0); }
 
@@ -740,7 +721,6 @@ public:
      * Adds a radio type to the set.
      *
      * @param[in] aType  A radio link type.
-     *
      */
     void Add(RadioType aType) { mBitMask |= BitFlag(aType); }
 
@@ -748,13 +728,11 @@ public:
      * Adds another radio types set to the current one.
      *
      * @param[in] aTypes   A radio link type set to add.
-     *
      */
     void Add(RadioTypes aTypes) { mBitMask |= aTypes.mBitMask; }
 
     /**
      * Adds all radio types supported by device to the set.
-     *
      */
     void AddAll(void);
 
@@ -762,7 +740,6 @@ public:
      * Removes a given radio type from the set.
      *
      * @param[in] aType  A radio link type.
-     *
      */
     void Remove(RadioType aType) { mBitMask &= ~BitFlag(aType); }
 
@@ -772,7 +749,6 @@ public:
      * The first bit in the mask corresponds to first radio type (radio type with value zero), and so on.
      *
      * @returns A bitmask representing the set of radio types.
-     *
      */
     uint8_t GetAsBitMask(void) const { return mBitMask; }
 
@@ -783,7 +759,6 @@ public:
      * @param[in] aOther  Another radio type set.
      *
      * @returns A new set which is set difference between current one and @p aOther.
-     *
      */
     RadioTypes operator-(const RadioTypes &aOther) const { return RadioTypes(mBitMask & ~aOther.mBitMask); }
 
@@ -791,7 +766,6 @@ public:
      * Converts the radio set to human-readable string.
      *
      * @return A string representation of the set of radio types.
-     *
      */
     InfoString ToString(void) const;
 
@@ -807,7 +781,6 @@ private:
  * @param[in] aRadioType  A link type value.
  *
  * @returns A string representation of the link type.
- *
  */
 const char *RadioTypeToString(RadioType aRadioType);
 
@@ -815,14 +788,12 @@ const char *RadioTypeToString(RadioType aRadioType);
 
 /**
  * Represents Link Frame Counters for all supported radio links.
- *
  */
 class LinkFrameCounters
 {
 public:
     /**
      * Resets all counters (set them all to zero).
-     *
      */
     void Reset(void) { SetAll(0); }
 
@@ -834,7 +805,6 @@ public:
      * @param[in] aRadioType  A radio link type.
      *
      * @returns The Link Frame Counter for radio link @p aRadioType.
-     *
      */
     uint32_t Get(RadioType aRadioType) const;
 
@@ -843,7 +813,6 @@ public:
      *
      * @param[in] aRadioType  A radio link type.
      * @param[in] aCounter    The new counter value.
-     *
      */
     void Set(RadioType aRadioType, uint32_t aCounter);
 
@@ -853,7 +822,6 @@ public:
      * Gets the Link Frame Counter value.
      *
      * @return The Link Frame Counter value.
-     *
      */
     uint32_t Get(void) const
 #if OPENTHREAD_CONFIG_RADIO_LINK_IEEE_802_15_4_ENABLE
@@ -870,7 +838,6 @@ public:
      * Sets the Link Frame Counter for a given radio link.
      *
      * @param[in] aCounter    The new counter value.
-     *
      */
     void Set(uint32_t aCounter)
 #if OPENTHREAD_CONFIG_RADIO_LINK_IEEE_802_15_4_ENABLE
@@ -890,7 +857,6 @@ public:
      * Gets the Link Frame Counter for 802.15.4 radio link.
      *
      * @returns The Link Frame Counter for 802.15.4 radio link.
-     *
      */
     uint32_t Get154(void) const { return m154Counter; }
 
@@ -898,7 +864,6 @@ public:
      * Sets the Link Frame Counter for 802.15.4 radio link.
      *
      * @param[in] aCounter   The new counter value.
-     *
      */
     void Set154(uint32_t aCounter) { m154Counter = aCounter; }
 #endif
@@ -908,13 +873,11 @@ public:
      * Gets the Link Frame Counter for TREL radio link.
      *
      * @returns The Link Frame Counter for TREL radio link.
-     *
      */
     uint32_t GetTrel(void) const { return mTrelCounter; }
 
     /**
      * Increments the Link Frame Counter for TREL radio link.
-     *
      */
     void IncrementTrel(void) { mTrelCounter++; }
 #endif
@@ -923,7 +886,6 @@ public:
      * Gets the maximum Link Frame Counter among all supported radio links.
      *
      * @return The maximum Link frame Counter among all supported radio links.
-     *
      */
     uint32_t GetMaximum(void) const;
 
@@ -931,7 +893,6 @@ public:
      * Sets the Link Frame Counter value for all radio links.
      *
      * @param[in]  aCounter  The Link Frame Counter value.
-     *
      */
     void SetAll(uint32_t aCounter);
 
@@ -946,7 +907,6 @@ private:
 
 /**
  * Represents CSL accuracy.
- *
  */
 class CslAccuracy
 {
@@ -956,7 +916,6 @@ public:
 
     /**
      * Initializes the CSL accuracy using `kWorstClockAccuracy` and `kWorstUncertainty` values.
-     *
      */
     void Init(void)
     {
@@ -968,7 +927,6 @@ public:
      * Returns the CSL clock accuracy.
      *
      * @returns The CSL clock accuracy in ± ppm.
-     *
      */
     uint8_t GetClockAccuracy(void) const { return mClockAccuracy; }
 
@@ -976,7 +934,6 @@ public:
      * Sets the CSL clock accuracy.
      *
      * @param[in]  aClockAccuracy  The CSL clock accuracy in ± ppm.
-     *
      */
     void SetClockAccuracy(uint8_t aClockAccuracy) { mClockAccuracy = aClockAccuracy; }
 
@@ -984,7 +941,6 @@ public:
      * Returns the CSL uncertainty.
      *
      * @returns The uncertainty in units 10 microseconds.
-     *
      */
     uint8_t GetUncertainty(void) const { return mUncertainty; }
 
@@ -992,7 +948,6 @@ public:
      * Gets the CLS uncertainty in microseconds.
      *
      * @returns the CLS uncertainty in microseconds.
-     *
      */
     uint16_t GetUncertaintyInMicrosec(void) const { return static_cast<uint16_t>(mUncertainty) * kUsPerUncertUnit; }
 
@@ -1000,7 +955,6 @@ public:
      * Sets the CSL uncertainty.
      *
      * @param[in]  aUncertainty  The CSL uncertainty in units 10 microseconds.
-     *
      */
     void SetUncertainty(uint8_t aUncertainty) { mUncertainty = aUncertainty; }
 
@@ -1011,16 +965,144 @@ private:
     uint8_t mUncertainty;
 };
 
+#if OPENTHREAD_CONFIG_WAKEUP_COORDINATOR_ENABLE || OPENTHREAD_CONFIG_WAKEUP_END_DEVICE_ENABLE
+/**
+ * Gets the length of the wake-up identifier.
+ *
+ * The length is the number of bytes remaining after removing the most significant zero bytes.
+ *
+ * @param[in]  aWakeupId  The wake-up identifier.
+ *
+ * @returns The length of the @p aWakeupId.
+ */
+uint8_t GetWakeupIdLength(WakeupId aWakeupId);
+#endif
+
+#if OPENTHREAD_CONFIG_WAKEUP_COORDINATOR_ENABLE
+/**
+ * Represents a wake-up request.
+ */
+class WakeupRequest : public otWakeupRequest
+{
+public:
+    /**
+     * Represents a wake-up request type.
+     */
+    enum Type : uint8_t
+    {
+        kTypeExtAddress    = OT_WAKEUP_TYPE_EXT_ADDRESS,
+        kTypeWakeupId      = OT_WAKEUP_TYPE_IDENTIFIER,
+        kTypeGroupWakeupId = OT_WAKEUP_TYPE_GROUP_IDENTIFIER,
+    };
+
+    /**
+     * Sets the wake-up request with an Extended Address.
+     *
+     * The type is also updated to indicate that the wake-up request type is `kTypeExtAddress`.
+     *
+     * @param[in]  aExtAddress  An Extended Address.
+     */
+    void SetExtAddress(const ExtAddress &aExtAddress);
+
+    /**
+     * Gets the Extended Address of the wake-up request.
+     *
+     * MUST be used only if the wake-up request type is `kTypeExtAddress`.
+     *
+     * @returns A constant reference to the Extended Address.
+     */
+    const ExtAddress &GetExtAddress(void) const;
+
+    /**
+     * Gets the Extended Address of the wake-up request.
+     *
+     * MUST be used only if the wake-up request type is `kTypeExtAddress`.
+     *
+     * @returns A reference to the Extended Address.
+     */
+    ExtAddress &GetExtAddress(void);
+
+    /**
+     * Gets the Wake-up Identifier of the wake-up request.
+     *
+     * MUST be used only if the wake-up request type is `kTypeWakeupId` or `kTypeGroupWakeupId`.
+     *
+     * @returns The Wake-up Identifier.
+     */
+    WakeupId GetWakeupId(void) const { return mShared.mWakeupId; }
+
+    /**
+     * Sets the wake-up request with the Wake-up Identifier.
+     *
+     * The type is also updated to indicate that the wake-up request type is `kTypeWakeupId`.
+     *
+     * @param[in]  aWakeupId  A Wake-up Identifier.
+     */
+    void SetWakeupId(WakeupId aWakeupId)
+    {
+        SetType(kTypeWakeupId);
+        mShared.mWakeupId = aWakeupId;
+    }
+
+    /**
+     * Sets the wake-up request type.
+     *
+     * @param[in]  aType  The wake-up request type.
+     */
+    void SetType(Type aType);
+
+    /**
+     * Indicates whether the peer is set to be woken up by the extended address.
+     *
+     * @retval TRUE   If the peer is set to be woken up by the extended address.
+     * @retval FALSE  If the peer is not not set to be woken up by the extended address.
+     */
+    bool IsWakeupByExtAddress(void) const;
+
+    /**
+     * Indicates whether the peer is set to be woken up by the wake-up identifier.
+     *
+     * @retval TRUE   If the peer is set to be woken up by the wake-up identifier.
+     * @retval FALSE  If the peer is not set to be woken up by the wake-up identifier.
+     */
+    bool IsWakeupById(void) const;
+
+    /**
+     * Indicates whether the peer is set to be woken up by the group wake-up identifier.
+     *
+     * @retval TRUE   If the peer is set to be woken up by the group wake-up identifier.
+     * @retval FALSE  If the peer is not set to be woken up by the group wake-up identifier.
+     */
+    bool IsWakeupByGroupId(void) const;
+};
+#endif // OPENTHREAD_CONFIG_WAKEUP_COORDINATOR_ENABLE
+
+#if OPENTHREAD_CONFIG_WAKEUP_END_DEVICE_ENABLE
+/**
+ * Represents the information of the received wake-up frame.
+ */
+struct WakeupInfo
+{
+    ExtAddress mExtAddress;        ///< The extended address of the Wake-up Coordinator.
+    uint32_t   mAttachDelayMs;     ///< The delay before linking to the peer.
+    uint8_t    mRetryInterval : 2; ///< The interval of the periodic connection windows.
+    uint8_t    mRetryCount : 4;    ///< The maximum number of retries the action by the Wake-up Listener.
+};
+#endif
+
 /**
  * @}
- *
  */
 
 } // namespace Mac
 
 DefineCoreType(otExtAddress, Mac::ExtAddress);
 DefineCoreType(otMacKey, Mac::Key);
+#if OPENTHREAD_CONFIG_WAKEUP_COORDINATOR_ENABLE
+DefineCoreType(otWakeupRequest, Mac::WakeupRequest);
+DefineMapEnum(otWakeupType, Mac::WakeupRequest::Type);
+#endif
 
 } // namespace ot
 
-#endif // MAC_TYPES_HPP_
+#endif // OT_CORE_MAC_MAC_TYPES_HPP_

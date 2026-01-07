@@ -304,12 +304,12 @@ otError HdlcInterface::WaitForFrame(uint64_t aTimeoutUs)
         break;
     }
 #else  // OPENTHREAD_POSIX_VIRTUAL_TIME
-    timeout.tv_sec = static_cast<time_t>(aTimeoutUs / OT_US_PER_S);
+    timeout.tv_sec  = static_cast<time_t>(aTimeoutUs / OT_US_PER_S);
     timeout.tv_usec = static_cast<suseconds_t>(aTimeoutUs % OT_US_PER_S);
 
     fd_set read_fds;
     fd_set error_fds;
-    int rval;
+    int    rval;
 
     FD_ZERO(&read_fds);
     FD_ZERO(&error_fds);
@@ -465,7 +465,7 @@ int HdlcInterface::OpenFile(const Url::Url &aRadioUrl)
         const char    *value;
         speed_t        speed;
         uint8_t        stopBit  = 1;
-        uint32_t       baudrate = 115200;
+        uint32_t       baudrate = 460800;
 
         VerifyOrExit((rval = tcgetattr(fd, &tios)) == 0);
 

@@ -35,7 +35,6 @@
 
 #if (OPENTHREAD_CONFIG_THREAD_VERSION >= OT_THREAD_VERSION_1_2)
 
-#include "common/locator_getters.hpp"
 #include "instance/instance.hpp"
 
 namespace ot {
@@ -98,48 +97,41 @@ void Leader::LogBackboneRouterPrimary(State aState, const Config &aConfig) const
 
 const char *Leader::StateToString(State aState)
 {
-    static const char *const kStateStrings[] = {
-        "None",            //  (0) kStateNone
-        "Added",           //  (1) kStateAdded
-        "Removed",         //  (2) kStateRemoved
-        "Rereg triggered", //  (3) kStateToTriggerRereg
-        "Refreshed",       //  (4) kStateRefreshed
-        "Unchanged",       //  (5) kStateUnchanged
-    };
+#define StateMapList(_)                        \
+    _(kStateNone, "None")                      \
+    _(kStateAdded, "Added")                    \
+    _(kStateRemoved, "Removed")                \
+    _(kStateToTriggerRereg, "Rereg triggered") \
+    _(kStateRefreshed, "Refreshed")            \
+    _(kStateUnchanged, "Unchanged")
 
-    static_assert(0 == kStateNone, "kStateNone value is incorrect");
-    static_assert(1 == kStateAdded, "kStateAdded value is incorrect");
-    static_assert(2 == kStateRemoved, "kStateRemoved value is incorrect");
-    static_assert(3 == kStateToTriggerRereg, "kStateToTriggerRereg value is incorrect");
-    static_assert(4 == kStateRefreshed, "kStateRefreshed value is incorrect");
-    static_assert(5 == kStateUnchanged, "kStateUnchanged value is incorrect");
+    DefineEnumStringArray(StateMapList);
 
-    return kStateStrings[aState];
+    return kStrings[aState];
 }
 
 const char *Leader::DomainPrefixEventToString(DomainPrefixEvent aEvent)
 {
-    static const char *const kEventStrings[] = {
-        "Added",     // (0) kDomainPrefixAdded
-        "Removed",   // (1) kDomainPrefixRemoved
-        "Refreshed", // (2) kDomainPrefixRefreshed
-        "Unchanged", // (3) kDomainPrefixUnchanged
-    };
+#define DomainPrefixEventMapList(_)        \
+    _(kDomainPrefixAdded, "Added")         \
+    _(kDomainPrefixRemoved, "Removed")     \
+    _(kDomainPrefixRefreshed, "Refreshed") \
+    _(kDomainPrefixUnchanged, "Unchanged")
 
-    static_assert(0 == kDomainPrefixAdded, "kDomainPrefixAdded value is incorrect");
-    static_assert(1 == kDomainPrefixRemoved, "kDomainPrefixRemoved value is incorrect");
-    static_assert(2 == kDomainPrefixRefreshed, "kDomainPrefixRefreshed value is incorrect");
-    static_assert(3 == kDomainPrefixUnchanged, "kDomainPrefixUnchanged value is incorrect");
+    DefineEnumStringArray(DomainPrefixEventMapList);
 
-    return kEventStrings[aEvent];
+    return kStrings[aEvent];
 }
 
 #endif // OT_SHOULD_LOG_AT(OT_LOG_LEVEL_INFO)
 
-void Leader::Update(void)
+void Leader::HandleNotifierEvents(Events aEvents)
 {
-    UpdateBackboneRouterPrimary();
-    UpdateDomainPrefixConfig();
+    if (aEvents.Contains(kEventThreadNetdataChanged))
+    {
+        UpdateBackboneRouterPrimary();
+        UpdateDomainPrefixConfig();
+    }
 }
 
 void Leader::UpdateBackboneRouterPrimary(void)
@@ -216,13 +208,13 @@ void Leader::UpdateBackboneRouterPrimary(void)
 void Leader::UpdateDomainPrefixConfig(void)
 {
     NetworkData::Iterator           iterator = NetworkData::kIteratorInit;
-    NetworkData::OnMeshPrefixConfig config;
+    NetworkData::OnMeshPrefixConfig prefixConfig;
     DomainPrefixEvent               event;
     bool                            found = false;
 
-    while (Get<NetworkData::Leader>().GetNextOnMeshPrefix(iterator, config) == kErrorNone)
+    while (Get<NetworkData::Leader>().GetNext(iterator, prefixConfig) == kErrorNone)
     {
-        if (config.mDp)
+        if (prefixConfig.mDp)
         {
             found = true;
             break;
@@ -237,14 +229,14 @@ void Leader::UpdateDomainPrefixConfig(void)
         mDomainPrefix.Clear();
         event = kDomainPrefixRemoved;
     }
-    else if (config.GetPrefix() == mDomainPrefix)
+    else if (prefixConfig.GetPrefix() == mDomainPrefix)
     {
         event = kDomainPrefixUnchanged;
     }
     else
     {
         event         = HasDomainPrefix() ? kDomainPrefixRefreshed : kDomainPrefixAdded;
-        mDomainPrefix = config.GetPrefix();
+        mDomainPrefix = prefixConfig.GetPrefix();
     }
 
     LogInfo("%s domain Prefix: %s", DomainPrefixEventToString(event), mDomainPrefix.ToString().AsCString());

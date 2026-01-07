@@ -33,20 +33,7 @@
 
 #include "address_resolver.hpp"
 
-#include "coap/coap_message.hpp"
-#include "common/as_core_type.hpp"
-#include "common/code_utils.hpp"
-#include "common/debug.hpp"
-#include "common/encoding.hpp"
-#include "common/locator_getters.hpp"
-#include "common/log.hpp"
-#include "common/time.hpp"
 #include "instance/instance.hpp"
-#include "mac/mac_types.hpp"
-#include "thread/mesh_forwarder.hpp"
-#include "thread/mle_router.hpp"
-#include "thread/thread_netif.hpp"
-#include "thread/uri_paths.hpp"
 
 namespace ot {
 
@@ -136,7 +123,7 @@ Error AddressResolver::GetNextCacheEntry(EntryInfo &aInfo, Iterator &aIterator) 
         VerifyOrExit(entry->IsLastTransactionTimeValid());
 
         aInfo.mLastTransTime = entry->GetLastTransactionTime();
-        AsCoreType(&aInfo.mMeshLocalEid).SetPrefix(Get<Mle::MleRouter>().GetMeshLocalPrefix());
+        AsCoreType(&aInfo.mMeshLocalEid).SetPrefix(Get<Mle::Mle>().GetMeshLocalPrefix());
         AsCoreType(&aInfo.mMeshLocalEid).SetIid(entry->GetMeshLocalIid());
 
         ExitNow();
@@ -214,7 +201,7 @@ AddressResolver::CacheEntry *AddressResolver::FindCacheEntry(const Ip6::Address 
     for (CacheEntryList *list : lists)
     {
         aList = list;
-        entry = aList->FindMatching(aEid, aPrevEntry);
+        entry = aList->FindMatchingWithPrev(aPrevEntry, aEid);
         VerifyOrExit(entry == nullptr);
     }
 
@@ -382,7 +369,7 @@ void AddressResolver::UpdateSnoopedCacheEntry(const Ip6::Address &aEid, uint16_t
     uint16_t    numNonEvictable = 0;
     CacheEntry *entry;
 
-    VerifyOrExit(Get<Mle::MleRouter>().IsFullThreadDevice());
+    VerifyOrExit(Get<Mle::Mle>().IsFullThreadDevice());
 
 #if OPENTHREAD_CONFIG_TMF_ALLOW_ADDRESS_RESOLUTION_USING_NET_DATA_SERVICES
     {
@@ -600,13 +587,13 @@ Error AddressResolver::ResolveUsingNetDataServices(const Ip6::Address &aEid, uin
     // if successful, otherwise returns `kErrorNotFound`.
 
     Error                                   error = kErrorNotFound;
-    NetworkData::Service::Manager::Iterator iterator;
+    NetworkData::Service::Iterator          iterator(GetInstance());
     NetworkData::Service::DnsSrpUnicastInfo unicastInfo;
     NetworkData::Service::DnsSrpUnicastType type = NetworkData::Service::kAddrInServerData;
 
     VerifyOrExit(Get<Mle::Mle>().GetDeviceMode().GetNetworkDataType() == NetworkData::kFullSet);
 
-    while (Get<NetworkData::Service::Manager>().GetNextDnsSrpUnicastInfo(iterator, type, unicastInfo) == kErrorNone)
+    while (iterator.GetNextDnsSrpUnicastInfo(type, unicastInfo) == kErrorNone)
     {
         if (aEid == unicastInfo.mSockAddr.GetAddress())
         {
@@ -647,7 +634,7 @@ exit:
 #if OPENTHREAD_CONFIG_BACKBONE_ROUTER_DUA_NDPROXYING_ENABLE
     if (Get<BackboneRouter::Local>().IsPrimary() && Get<BackboneRouter::Leader>().IsDomainUnicast(aEid))
     {
-        uint16_t selfRloc16 = Get<Mle::MleRouter>().GetRloc16();
+        uint16_t selfRloc16 = Get<Mle::Mle>().GetRloc16();
 
         LogInfo("Extending %s to %s for target %s, rloc16=%04x(self)", UriToString<kUriAddressQuery>(),
                 UriToString<kUriBackboneQuery>(), aEid.ToString().AsCString(), selfRloc16);
@@ -798,7 +785,7 @@ void AddressResolver::HandleTmf<kUriAddressError>(Coap::Message &aMessage, const
 
     for (Ip6::Netif::UnicastAddress &address : Get<ThreadNetif>().GetUnicastAddresses())
     {
-        if (address.GetAddress() == target && Get<Mle::MleRouter>().GetMeshLocalEid().GetIid() != meshLocalIid)
+        if (address.GetAddress() == target && Get<Mle::Mle>().GetMeshLocalEid().GetIid() != meshLocalIid)
         {
             // Target EID matches address and Mesh Local EID differs
 #if OPENTHREAD_CONFIG_DUA_ENABLE
@@ -817,7 +804,7 @@ void AddressResolver::HandleTmf<kUriAddressError>(Coap::Message &aMessage, const
     }
 
 #if OPENTHREAD_FTD
-    meshLocalIid.ConvertToExtAddress(extAddr);
+    extAddr.SetFromIid(meshLocalIid);
 
     for (Child &child : Get<ChildTable>().Iterate(Child::kInStateValid))
     {
@@ -867,7 +854,7 @@ void AddressResolver::HandleTmf<kUriAddressQuery>(Coap::Message &aMessage, const
 
     if (Get<ThreadNetif>().HasUnicastAddress(target))
     {
-        SendAddressQueryResponse(target, Get<Mle::MleRouter>().GetMeshLocalEid().GetIid(), nullptr,
+        SendAddressQueryResponse(target, Get<Mle::Mle>().GetMeshLocalEid().GetIid(), nullptr,
                                  aMessageInfo.GetPeerAddr());
         ExitNow();
     }
@@ -916,7 +903,7 @@ void AddressResolver::SendAddressQueryResponse(const Ip6::Address             &a
 
     SuccessOrExit(error = Tlv::Append<ThreadTargetTlv>(*message, aTarget));
     SuccessOrExit(error = Tlv::Append<ThreadMeshLocalEidTlv>(*message, aMeshLocalIid));
-    SuccessOrExit(error = Tlv::Append<ThreadRloc16Tlv>(*message, Get<Mle::MleRouter>().GetRloc16()));
+    SuccessOrExit(error = Tlv::Append<ThreadRloc16Tlv>(*message, Get<Mle::Mle>().GetRloc16()));
 
     if (aLastTransactionTime != nullptr)
     {
@@ -1082,43 +1069,43 @@ exit:
 
 #if OT_SHOULD_LOG_AT(OT_LOG_LEVEL_INFO)
 
+const char *AddressResolver::EntryChangeToString(EntryChange aChange)
+{
+#define EntryChangeMapList(_)   \
+    _(kEntryAdded, "added")     \
+    _(kEntryUpdated, "updated") \
+    _(kEntryRemoved, "removed")
+
+    DefineEnumStringArray(EntryChangeMapList);
+
+    return kStrings[aChange];
+}
+
+const char *AddressResolver::ReasonToString(Reason aReason)
+{
+#define ReasonMapList(_)                                        \
+    _(kReasonQueryRequest, "query request")                     \
+    _(kReasonSnoop, "snoop")                                    \
+    _(kReasonReceivedNotification, "rx notification")           \
+    _(kReasonRemovingRouterId, "removing router id")            \
+    _(kReasonRemovingRloc16, "removing rloc16")                 \
+    _(kReasonReceivedIcmpDstUnreachNoRoute, "rx icmp no route") \
+    _(kReasonEvictingForNewEntry, "evicting for new entry")     \
+    _(kReasonRemovingEid, "removing eid")
+
+    DefineEnumStringArray(ReasonMapList);
+
+    return kStrings[aReason];
+}
+
 void AddressResolver::LogCacheEntryChange(EntryChange       aChange,
                                           Reason            aReason,
                                           const CacheEntry &aEntry,
                                           CacheEntryList   *aList)
 {
-    static const char *const kChangeStrings[] = {
-        "added",   // (0) kEntryAdded
-        "updated", // (1) kEntryUpdated
-        "removed", // (2) kEntryRemoved
-    };
-
-    static const char *const kReasonStrings[] = {
-        "query request",          // (0) kReasonQueryRequest
-        "snoop",                  // (1) kReasonSnoop
-        "rx notification",        // (2) kReasonReceivedNotification
-        "removing router id",     // (3) kReasonRemovingRouterId
-        "removing rloc16",        // (4) kReasonRemovingRloc16
-        "rx icmp no route",       // (5) kReasonReceivedIcmpDstUnreachNoRoute
-        "evicting for new entry", // (6) kReasonEvictingForNewEntry
-        "removing eid",           // (7) kReasonRemovingEid
-    };
-
-    static_assert(0 == kEntryAdded, "kEntryAdded value is incorrect");
-    static_assert(1 == kEntryUpdated, "kEntryUpdated value is incorrect");
-    static_assert(2 == kEntryRemoved, "kEntryRemoved value is incorrect");
-
-    static_assert(0 == kReasonQueryRequest, "kReasonQueryRequest value is incorrect");
-    static_assert(1 == kReasonSnoop, "kReasonSnoop value is incorrect");
-    static_assert(2 == kReasonReceivedNotification, "kReasonReceivedNotification value is incorrect");
-    static_assert(3 == kReasonRemovingRouterId, "kReasonRemovingRouterId value is incorrect");
-    static_assert(4 == kReasonRemovingRloc16, "kReasonRemovingRloc16 value is incorrect");
-    static_assert(5 == kReasonReceivedIcmpDstUnreachNoRoute, "kReasonReceivedIcmpDstUnreachNoRoute value is incorrect");
-    static_assert(6 == kReasonEvictingForNewEntry, "kReasonEvictingForNewEntry value is incorrect");
-    static_assert(7 == kReasonRemovingEid, "kReasonRemovingEid value is incorrect");
-
-    LogInfo("Cache entry %s: %s, 0x%04x%s%s - %s", kChangeStrings[aChange], aEntry.GetTarget().ToString().AsCString(),
-            aEntry.GetRloc16(), (aList == nullptr) ? "" : ", list:", ListToString(aList), kReasonStrings[aReason]);
+    LogInfo("Cache entry %s: %s, 0x%04x%s%s - %s", EntryChangeToString(aChange),
+            aEntry.GetTarget().ToString().AsCString(), aEntry.GetRloc16(),
+            (aList == nullptr) ? "" : ", list:", ListToString(aList), ReasonToString(aReason));
 }
 
 const char *AddressResolver::ListToString(const CacheEntryList *aList) const

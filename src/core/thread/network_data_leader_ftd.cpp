@@ -35,23 +35,7 @@
 
 #if OPENTHREAD_FTD
 
-#include "coap/coap_message.hpp"
-#include "common/as_core_type.hpp"
-#include "common/code_utils.hpp"
-#include "common/debug.hpp"
-#include "common/encoding.hpp"
-#include "common/locator_getters.hpp"
-#include "common/log.hpp"
-#include "common/message.hpp"
-#include "common/timer.hpp"
 #include "instance/instance.hpp"
-#include "mac/mac_types.hpp"
-#include "meshcop/meshcop.hpp"
-#include "thread/lowpan.hpp"
-#include "thread/mle_router.hpp"
-#include "thread/thread_netif.hpp"
-#include "thread/thread_tlvs.hpp"
-#include "thread/uri_paths.hpp"
 
 namespace ot {
 namespace NetworkData {
@@ -74,7 +58,7 @@ void Leader::Start(Mle::LeaderStartMode aStartMode)
 
 void Leader::IncrementVersion(void)
 {
-    if (Get<Mle::MleRouter>().IsLeader())
+    if (Get<Mle::Mle>().IsLeader())
     {
         IncrementVersions(/* aIncludeStable */ false);
     }
@@ -82,7 +66,7 @@ void Leader::IncrementVersion(void)
 
 void Leader::IncrementVersionAndStableVersion(void)
 {
-    if (Get<Mle::MleRouter>().IsLeader())
+    if (Get<Mle::Mle>().IsLeader())
     {
         IncrementVersions(/* aIncludeStable */ true);
     }
@@ -121,34 +105,34 @@ Error Leader::AnycastLookup(uint16_t aAloc16, uint16_t &aRloc16) const
 
     aRloc16 = Mle::kInvalidRloc16;
 
-    if (aAloc16 == Mle::kAloc16Leader)
+    if (Mle::Aloc16::IsForLeader(aAloc16))
     {
         aRloc16 = Get<Mle::Mle>().GetLeaderRloc16();
     }
-    else if (aAloc16 <= Mle::kAloc16DhcpAgentEnd)
+    else if (Mle::Aloc16::IsForDhcp6Agent(aAloc16))
     {
-        uint8_t contextId = static_cast<uint8_t>(aAloc16 - Mle::kAloc16DhcpAgentStart + 1);
+        uint8_t contextId = Mle::Aloc16::ToDhcpAgentContextId(aAloc16);
 
         error = LookupRouteForAgentAloc(contextId, IsEntryForDhcp6Agent, aRloc16);
     }
-    else if (aAloc16 <= Mle::kAloc16ServiceEnd)
+    else if (Mle::Aloc16::IsForService(aAloc16))
     {
         error = LookupRouteForServiceAloc(aAloc16, aRloc16);
     }
-    else if (aAloc16 <= Mle::kAloc16CommissionerEnd)
+    else if (Mle::Aloc16::IsForCommissioner(aAloc16))
     {
         error = FindBorderAgentRloc(aRloc16);
     }
 #if (OPENTHREAD_CONFIG_THREAD_VERSION >= OT_THREAD_VERSION_1_2)
-    else if (aAloc16 == Mle::kAloc16BackboneRouterPrimary)
+    else if (Mle::Aloc16::IsForPrimaryBackboneRouter(aAloc16))
     {
         VerifyOrExit(Get<BackboneRouter::Leader>().HasPrimary(), error = kErrorDrop);
         aRloc16 = Get<BackboneRouter::Leader>().GetServer16();
     }
 #endif
-    else if ((aAloc16 >= Mle::kAloc16NeighborDiscoveryAgentStart) && (aAloc16 <= Mle::kAloc16NeighborDiscoveryAgentEnd))
+    else if (Mle::Aloc16::IsForNdAgent(aAloc16))
     {
-        uint8_t contextId = static_cast<uint8_t>(aAloc16 - Mle::kAloc16NeighborDiscoveryAgentStart + 1);
+        uint8_t contextId = Mle::Aloc16::ToNdAgentContextId(aAloc16);
 
         error = LookupRouteForAgentAloc(contextId, IsEntryForNdAgent, aRloc16);
     }
@@ -181,7 +165,7 @@ exit:
 Error Leader::LookupRouteForServiceAloc(uint16_t aAloc16, uint16_t &aRloc16) const
 {
     Error             error      = kErrorNoRoute;
-    const ServiceTlv *serviceTlv = FindServiceById(Mle::ServiceIdFromAloc(aAloc16));
+    const ServiceTlv *serviceTlv = FindServiceById(Mle::Aloc16::ToServiceId(aAloc16));
 
     if (serviceTlv != nullptr)
     {
@@ -309,7 +293,7 @@ template <> void Leader::HandleTmf<kUriCommissionerSet>(Coap::Message &aMessage,
     state = MeshCoP::StateTlv::kAccept;
 
 exit:
-    if (Get<Mle::MleRouter>().IsLeader())
+    if (Get<Mle::Mle>().IsLeader())
     {
         SendCommissioningSetResponse(aMessage, aMessageInfo, state);
     }
@@ -680,7 +664,7 @@ void Leader::CheckForNetDataGettingFull(const NetworkData &aNetworkData, uint16_
     // device. If provided, then entries matching old RLOC16 are first
     // removed, before checking if new entries from @p aNetworkData can fit.
 
-    if (!Get<Mle::MleRouter>().IsLeader())
+    if (!Get<Mle::Mle>().IsLeader())
     {
         // Create a clone of the leader's network data, and try to register
         // `aNetworkData` into the copy (as if this device itself is the
@@ -851,6 +835,15 @@ exit:
     return error;
 }
 
+// The `AddHasRoute()`, `AddBorderRouter()`, and `AddServer()` methods
+// below shift and update the network data bytes, which may involve
+// inserting or updating a sub-TLV within an existing TLV. This can
+// trigger a known false positive warning on some GCC toolchains. The
+// `OT_SUPPRESS_GCC_STRING_OP_BEGIN`/ `OT_SUPPRESS_GCC_STRING_OP_END`
+// macros are used to silence this check within these methods.
+
+OT_SUPPRESS_GCC_STRING_OP_BEGIN
+
 Error Leader::AddHasRoute(const HasRouteTlv &aHasRoute, PrefixTlv &aDstPrefix, ChangedFlags &aChangedFlags)
 {
     Error                error       = kErrorNone;
@@ -984,6 +977,8 @@ Error Leader::AddServer(const ServerTlv &aServer, ServiceTlv &aDstService, Chang
 exit:
     return error;
 }
+
+OT_SUPPRESS_GCC_STRING_OP_END
 
 Error Leader::AllocateServiceId(uint8_t &aServiceId) const
 {
@@ -1431,7 +1426,7 @@ void Leader::HandleTimer(void)
     if (mWaitingForNetDataSync)
     {
         LogInfo("Timed out waiting for netdata on restoring leader role after reset");
-        IgnoreError(Get<Mle::MleRouter>().BecomeDetached());
+        IgnoreError(Get<Mle::Mle>().BecomeDetached());
     }
     else
     {

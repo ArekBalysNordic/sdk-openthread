@@ -37,32 +37,53 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || (github.repository == 'openthread/openthread' && github.run_id) || github.ref }}
   cancel-in-progress: true
 
-permissions:  # added using https://github.com/step-security/secure-workflows
-  contents: read
+permissions: {}
 
 jobs:
- Fuzzing:
-   runs-on: ubuntu-20.04
-   steps:
-   - name: Harden Runner
-     uses: step-security/harden-runner@5c7944e73c4c2a096b17a9cb74d65b6c2bbafbde # v2.9.1
-     with:
-       egress-policy: audit # TODO: change to 'egress-policy: block' after couple of runs
+  Fuzzing:
+    runs-on: ubuntu-24.04
 
-   - name: Build Fuzzers
-     uses: google/oss-fuzz/infra/cifuzz/actions/build_fuzzers@c0e4bb8d15a68b7f8cc731ea75523e48a2301bcf # master
-     with:
-       oss-fuzz-project-name: 'openthread'
-       dry-run: false
-   - name: Run Fuzzers
-     uses: google/oss-fuzz/infra/cifuzz/actions/run_fuzzers@c0e4bb8d15a68b7f8cc731ea75523e48a2301bcf # master
-     with:
-       oss-fuzz-project-name: 'openthread'
-       fuzz-seconds: 1800
-       dry-run: false
-   - name: Upload Crash
-     uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
-     if: failure()
-     with:
-       name: artifacts
-       path: ./out/artifacts
+    permissions:
+      security-events: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer: [address, undefined]
+
+    steps:
+    - name: Harden Runner
+      uses: step-security/harden-runner@f4a75cfd619ee5ce8d5b864b0d183aff3c69b55a # v2.13.1
+      with:
+        egress-policy: audit # TODO: change to 'egress-policy: block' after couple of runs
+    
+    - name: Build Fuzzers (${{ matrix.sanitizer }})
+      id: build
+      uses: google/oss-fuzz/infra/cifuzz/actions/build_fuzzers@master
+      with:
+        oss-fuzz-project-name: 'openthread'
+        language: 'c++'
+        sanitizer: ${{ matrix.sanitizer }}
+
+    - name: Run Fuzzers (${{ matrix.sanitizer }})
+      uses: google/oss-fuzz/infra/cifuzz/actions/run_fuzzers@master
+      with:
+        oss-fuzz-project-name: 'openthread'
+        language: 'c++'
+        fuzz-seconds: 1800
+        sanitizer: ${{ matrix.sanitizer }}
+        output-sarif: true
+
+    - name: Upload Crash
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      if: failure() && steps.build.outcome == 'success'
+      with:
+        name: ${{ matrix.sanitizer }}-artifacts
+        path: ./out/artifacts
+
+    - name: Upload Sarif
+      if: always() && steps.build.outcome == 'success'
+      uses: github/codeql-action/upload-sarif@5d4e8d1aca955e8d8589aabd499c5cae939e33c7 # v4.31.9
+      with:
+        sarif_file: cifuzz-sarif/results.sarif
+        checkout_path: cifuzz-sarif

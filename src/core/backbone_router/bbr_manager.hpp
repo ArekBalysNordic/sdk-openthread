@@ -31,8 +31,8 @@
  *   This file includes definitions for Backbone Router management.
  */
 
-#ifndef BACKBONE_ROUTER_MANAGER_HPP_
-#define BACKBONE_ROUTER_MANAGER_HPP_
+#ifndef OT_CORE_BACKBONE_ROUTER_BBR_MANAGER_HPP_
+#define OT_CORE_BACKBONE_ROUTER_BBR_MANAGER_HPP_
 
 #include "openthread-core-config.h"
 
@@ -48,6 +48,7 @@
 #include "common/locator.hpp"
 #include "common/non_copyable.hpp"
 #include "net/netif.hpp"
+#include "thread/dua_manager.hpp"
 #include "thread/network_data.hpp"
 #include "thread/tmf.hpp"
 
@@ -57,7 +58,6 @@ namespace BackboneRouter {
 
 /**
  * Implements the definitions for Backbone Router management.
- *
  */
 class Manager : public InstanceLocator, private NonCopyable
 {
@@ -70,7 +70,6 @@ public:
      * Initializes the Backbone Router manager.
      *
      * @param[in] aInstance  A reference to the OpenThread instance.
-     *
      */
     explicit Manager(Instance &aInstance);
 
@@ -79,7 +78,6 @@ public:
      * Returns the NdProxy Table.
      *
      * @returns The NdProxy Table.
-     *
      */
     NdProxyTable &GetNdProxyTable(void);
 #endif
@@ -94,7 +92,6 @@ public:
      * @param[in] aMlIid    A pointer to the Mesh Local IID. If `nullptr`, respond with @p aStatus for any
      *                      coming DUA.req, otherwise only respond the one with matching @p aMlIid.
      * @param[in] aStatus   The status to respond.
-     *
      */
     void ConfigNextDuaRegistrationResponse(const Ip6::InterfaceIdentifier *aMlIid, uint8_t aStatus);
 
@@ -106,9 +103,8 @@ public:
      *       Only used for test and certification.
      *
      * @param[in] aStatus  The status to respond.
-     *
      */
-    void ConfigNextMulticastListenerRegistrationResponse(ThreadStatusTlv::MlrStatus aStatus);
+    void ConfigNextMulticastListenerRegistrationResponse(MlrStatus aStatus);
 #endif
 #endif
 
@@ -117,7 +113,6 @@ public:
      * Gets the Multicast Listeners Table.
      *
      * @returns The Multicast Listeners Table.
-     *
      */
     MulticastListenersTable &GetMulticastListenersTable(void) { return mMulticastListenersTable; }
 #endif
@@ -130,7 +125,6 @@ public:
      *
      * @retval TRUE   If messages destined to the Domain Unicast Address should be forwarded to the Backbone link.
      * @retval FALSE  If messages destined to the Domain Unicast Address should not be forwarded to the Backbone link.
-     *
      */
     bool ShouldForwardDuaToBackbone(const Ip6::Address &aAddress);
 
@@ -138,7 +132,6 @@ public:
      * Returns a reference to the Backbone TMF agent.
      *
      * @returns A reference to the Backbone TMF agent.
-     *
      */
     BackboneTmfAgent &GetBackboneTmfAgent(void) { return mBackboneTmfAgent; }
 
@@ -152,7 +145,6 @@ public:
      * @retval kErrorNone          Successfully sent BB.qry on backbone link.
      * @retval kErrorInvalidState  If the Backbone Router is not primary, or not enabled.
      * @retval kErrorNoBufs        If insufficient message buffers available.
-     *
      */
     Error SendBackboneQuery(const Ip6::Address &aDua, uint16_t aRloc16 = Mle::kInvalidRloc16);
 
@@ -165,7 +157,6 @@ public:
      *
      * @retval kErrorNone          Successfully sent PRO_BB.ntf on backbone link.
      * @retval kErrorNoBufs        If insufficient message buffers available.
-     *
      */
     Error SendProactiveBackboneNotification(const Ip6::Address             &aDua,
                                             const Ip6::InterfaceIdentifier &aMeshLocalIid,
@@ -180,11 +171,11 @@ private:
 #if OPENTHREAD_CONFIG_BACKBONE_ROUTER_MULTICAST_ROUTING_ENABLE
     void HandleMulticastListenerRegistration(const Coap::Message &aMessage, const Ip6::MessageInfo &aMessageInfo);
 
-    void SendMulticastListenerRegistrationResponse(const Coap::Message       &aMessage,
-                                                   const Ip6::MessageInfo    &aMessageInfo,
-                                                   ThreadStatusTlv::MlrStatus aStatus,
-                                                   Ip6::Address              *aFailedAddresses,
-                                                   uint8_t                    aFailedAddressNum);
+    void SendMulticastListenerRegistrationResponse(const Coap::Message    &aMessage,
+                                                   const Ip6::MessageInfo &aMessageInfo,
+                                                   MlrStatus               aStatus,
+                                                   Ip6::Address           *aFailedAddresses,
+                                                   uint8_t                 aFailedAddressNum);
     void SendBackboneMulticastListenerRegistration(const Ip6::Address *aAddresses,
                                                    uint8_t             aAddressNum,
                                                    uint32_t            aTimeout);
@@ -209,10 +200,10 @@ private:
     void  HandleProactiveBackboneNotification(const Ip6::Address             &aDua,
                                               const Ip6::InterfaceIdentifier &aMeshLocalIid,
                                               uint32_t                        aTimeSinceLastTransaction);
-    void  SendDuaRegistrationResponse(const Coap::Message       &aMessage,
-                                      const Ip6::MessageInfo    &aMessageInfo,
-                                      const Ip6::Address        &aTarget,
-                                      ThreadStatusTlv::DuaStatus aStatus);
+    void  SendDuaRegistrationResponse(const Coap::Message    &aMessage,
+                                      const Ip6::MessageInfo &aMessageInfo,
+                                      const Ip6::Address     &aTarget,
+                                      DuaStatus               aStatus);
 #endif
     void HandleNotifierEvents(Events aEvents);
 
@@ -239,7 +230,7 @@ private:
     uint8_t                  mDuaResponseStatus;
 #endif
 #if OPENTHREAD_CONFIG_BACKBONE_ROUTER_MULTICAST_ROUTING_ENABLE
-    ThreadStatusTlv::MlrStatus mMlrResponseStatus;
+    MlrStatus mMlrResponseStatus;
 #endif
 #if OPENTHREAD_CONFIG_BACKBONE_ROUTER_DUA_NDPROXYING_ENABLE
     bool mDuaResponseIsSpecified : 1;
@@ -269,4 +260,4 @@ DeclareTmfHandler(Manager, kUriBackboneAnswer);
 
 #endif // OPENTHREAD_FTD && OPENTHREAD_CONFIG_BACKBONE_ROUTER_ENABLE
 
-#endif // BACKBONE_ROUTER_MANAGER_HPP_
+#endif // OT_CORE_BACKBONE_ROUTER_BBR_MANAGER_HPP_

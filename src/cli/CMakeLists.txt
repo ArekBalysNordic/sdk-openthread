@@ -33,6 +33,7 @@ set(COMMON_INCLUDES
 
 set(COMMON_SOURCES
     cli.cpp
+    cli_ba.cpp
     cli_bbr.cpp
     cli_br.cpp
     cli_coap.cpp
@@ -45,6 +46,7 @@ set(COMMON_SOURCES
     cli_link_metrics.cpp
     cli_mac_filter.cpp
     cli_mdns.cpp
+    cli_mesh_diag.cpp
     cli_network_data.cpp
     cli_ping.cpp
     cli_srp_client.cpp

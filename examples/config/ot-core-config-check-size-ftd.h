@@ -29,7 +29,6 @@
 /**
  * This header file defines the OpenThread core configuration example for an FTD device (not acting as BR). This is
  * intended for use in `script/check-size`.
- *
  */
 
 #ifndef OT_CORE_CONFIG_CHECK_SIZE_FTD_H_
@@ -72,6 +71,7 @@
 #define OPENTHREAD_CONFIG_LOG_LEVEL OT_LOG_LEVEL_INFO
 #define OPENTHREAD_CONFIG_LOG_LEVEL_DYNAMIC_ENABLE 0
 #define OPENTHREAD_CONFIG_MAC_CSL_RECEIVER_ENABLE 1
+#define OPENTHREAD_CONFIG_MAC_CSL_TRANSMITTER_ENABLE 1
 #define OPENTHREAD_CONFIG_MAC_FILTER_ENABLE 1
 #define OPENTHREAD_CONFIG_MESH_DIAG_ENABLE 1
 #define OPENTHREAD_CONFIG_MESSAGE_USE_HEAP_ENABLE 1

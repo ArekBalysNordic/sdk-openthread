@@ -35,15 +35,7 @@
 
 #if OPENTHREAD_FTD && OPENTHREAD_CONFIG_BACKBONE_ROUTER_MULTICAST_ROUTING_ENABLE
 
-#include "common/array.hpp"
-#include "common/code_utils.hpp"
-#include "common/locator_getters.hpp"
-#include "common/log.hpp"
-#include "common/random.hpp"
 #include "instance/instance.hpp"
-#include "thread/mle_types.hpp"
-#include "thread/thread_netif.hpp"
-#include "thread/uri_paths.hpp"
 
 namespace ot {
 
@@ -144,18 +136,15 @@ void MulticastListenersTable::Log(Action              aAction,
                                   TimeMilli           aExpireTime,
                                   Error               aError) const
 {
-    static const char *const kActionStrings[] = {
-        "Add",    // (0) kAdd
-        "Remove", // (1) kRemove
-        "Expire", // (2) kExpire
-    };
+#define ActionMapList(_) \
+    _(kAdd, "Add")       \
+    _(kRemove, "Remove") \
+    _(kExpire, "Expire")
 
-    static_assert(0 == kAdd, "kAdd value is incorrect");
-    static_assert(1 == kRemove, "kRemove value is incorrect");
-    static_assert(2 == kExpire, "kExpire value is incorrect");
+    DefineEnumStringArray(ActionMapList);
 
-    LogDebg("%s %s expire %lu: %s", kActionStrings[aAction], aAddress.ToString().AsCString(),
-            ToUlong(aExpireTime.GetValue()), ErrorToString(aError));
+    LogDebg("%s %s expire %lu: %s", kStrings[aAction], aAddress.ToString().AsCString(), ToUlong(aExpireTime.GetValue()),
+            ErrorToString(aError));
 }
 #else
 void MulticastListenersTable::Log(Action, const Ip6::Address &, TimeMilli, Error) const {}

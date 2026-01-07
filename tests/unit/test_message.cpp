@@ -37,14 +37,11 @@
 
 namespace ot {
 
-void TestMessage(void)
+void TestMessage(uint16_t aReservedLength)
 {
-    enum : uint16_t
-    {
-        kMaxSize    = (kBufferSize * 3 + 24),
-        kOffsetStep = 101,
-        kLengthStep = 21,
-    };
+    static constexpr uint16_t kMaxSize    = (Buffer::kSize * 3 + 24);
+    static constexpr uint16_t kOffsetStep = 101;
+    static constexpr uint16_t kLengthStep = 21;
 
     Instance    *instance;
     MessagePool *messagePool;
@@ -55,7 +52,7 @@ void TestMessage(void)
     uint8_t      readBuffer[kMaxSize];
     uint8_t      zeroBuffer[kMaxSize];
 
-    printf("TestMessage\n");
+    printf("TestMessage(aReservedLength: %u)\n", aReservedLength);
 
     memset(zeroBuffer, 0, sizeof(zeroBuffer));
 
@@ -66,11 +63,11 @@ void TestMessage(void)
 
     Random::NonCrypto::FillBuffer(writeBuffer, kMaxSize);
 
-    VerifyOrQuit((message = messagePool->Allocate(Message::kTypeIp6)) != nullptr);
-    message->SetLinkSecurityEnabled(Message::kWithLinkSecurity);
+    VerifyOrQuit((message = messagePool->Allocate(Message::kTypeIp6, aReservedLength)) != nullptr);
+    message->SetLinkSecurityEnabled(kWithLinkSecurity);
     SuccessOrQuit(message->SetPriority(Message::Priority::kPriorityNet));
     message->SetType(Message::Type::kType6lowpan);
-    message->SetSubType(Message::SubType::kSubTypeMleChildIdRequest);
+    message->SetSubType(Message::SubType::kSubTypeJoinerEntrust);
     message->SetLoopbackToHostAllowed(true);
     message->SetOrigin(Message::kOriginHostUntrusted);
     SuccessOrQuit(message->SetLength(kMaxSize));
@@ -157,6 +154,32 @@ void TestMessage(void)
             VerifyOrQuit(!message->CompareBytes(offset, readBuffer, length));
             VerifyOrQuit(message->CompareBytes(offset, readBuffer, readLength));
         }
+
+        // Verify `Read()` behavior when requested read length goes beyond available bytes in the message.
+
+        for (uint16_t length = kMaxSize - offset + 1; length <= kMaxSize + 1; length++)
+        {
+            Error error;
+
+            memset(readBuffer, 0, sizeof(readBuffer));
+
+            error = message->Read(offset, readBuffer, length);
+
+            if (length < kMaxSize - offset)
+            {
+                uint16_t readLength = kMaxSize - offset;
+
+                SuccessOrQuit(error);
+                VerifyOrQuit(memcmp(readBuffer, &writeBuffer[offset], readLength) == 0);
+                VerifyOrQuit(memcmp(&readBuffer[readLength], zeroBuffer, kMaxSize - readLength) == 0,
+                             "read after length");
+            }
+            else
+            {
+                VerifyOrQuit(error == kErrorParse);
+                VerifyOrQuit(memcmp(readBuffer, zeroBuffer, sizeof(readBuffer)) == 0, "Read() updated buffer on error");
+            }
+        }
     }
 
     VerifyOrQuit(message->GetLength() == kMaxSize);
@@ -164,7 +187,7 @@ void TestMessage(void)
     // Test `WriteBytesFromMessage()` behavior copying between different
     // messages.
 
-    VerifyOrQuit((message2 = messagePool->Allocate(Message::kTypeIp6)) != nullptr);
+    VerifyOrQuit((message2 = messagePool->Allocate(Message::kTypeIp6, aReservedLength)) != nullptr);
     SuccessOrQuit(message2->SetLength(kMaxSize));
 
     for (uint16_t readOffset = 0; readOffset < kMaxSize; readOffset += kOffsetStep)
@@ -296,7 +319,7 @@ void TestMessage(void)
     {
         for (uint16_t length = 0; length <= kMaxSize - offset; length += kLengthStep)
         {
-            VerifyOrQuit((message = messagePool->Allocate(Message::kTypeIp6)) != nullptr);
+            VerifyOrQuit((message = messagePool->Allocate(Message::kTypeIp6, aReservedLength)) != nullptr);
             SuccessOrQuit(message->AppendBytes(writeBuffer, kMaxSize));
 
             message->RemoveHeader(offset, length);
@@ -317,7 +340,7 @@ void TestMessage(void)
     {
         for (uint16_t length = 0; length <= kMaxSize; length += kLengthStep)
         {
-            VerifyOrQuit((message = messagePool->Allocate(Message::kTypeIp6)) != nullptr);
+            VerifyOrQuit((message = messagePool->Allocate(Message::kTypeIp6, aReservedLength)) != nullptr);
             SuccessOrQuit(message->AppendBytes(writeBuffer, kMaxSize));
 
             SuccessOrQuit(message->InsertHeader(offset, length));
@@ -429,7 +452,13 @@ void TestAppender(void)
 
 int main(void)
 {
-    ot::TestMessage();
+    static const uint16_t kReserveLengths[] = {0, 33, 400};
+
+    for (uint16_t reservedLength : kReserveLengths)
+    {
+        ot::TestMessage(reservedLength);
+    }
+
     ot::TestAppender();
     printf("All tests passed\n");
     return 0;

@@ -31,8 +31,8 @@
  *   This file includes definitions for generating and processing MLE TLVs.
  */
 
-#ifndef TLVS_HPP_
-#define TLVS_HPP_
+#ifndef OT_CORE_COMMON_TLVS_HPP_
+#define OT_CORE_COMMON_TLVS_HPP_
 
 #include "openthread-core-config.h"
 
@@ -42,6 +42,7 @@
 #include "common/const_cast.hpp"
 #include "common/encoding.hpp"
 #include "common/error.hpp"
+#include "common/numeric_limits.hpp"
 #include "common/offset_range.hpp"
 #include "common/type_traits.hpp"
 
@@ -51,7 +52,6 @@ class Message;
 
 /**
  * Implements TLV generation and parsing.
- *
  */
 OT_TOOL_PACKED_BEGIN
 class Tlv
@@ -59,7 +59,6 @@ class Tlv
 public:
     /**
      * The maximum length of the Base TLV format.
-     *
      */
     static constexpr uint8_t kBaseTlvMaxLength = OT_NETWORK_BASE_TLV_MAX_LENGTH;
 
@@ -67,7 +66,6 @@ public:
      * Returns the Type value.
      *
      * @returns The Type value.
-     *
      */
     uint8_t GetType(void) const { return mType; }
 
@@ -75,7 +73,6 @@ public:
      * Sets the Type value.
      *
      * @param[in]  aType  The Type value.
-     *
      */
     void SetType(uint8_t aType) { mType = aType; }
 
@@ -84,7 +81,6 @@ public:
      *
      * @retval TRUE  If the TLV is an Extended TLV.
      * @retval FALSE If the TLV is not an Extended TLV.
-     *
      */
     bool IsExtended(void) const { return (mLength == kExtendedLength); }
 
@@ -96,7 +92,6 @@ public:
      * the `ExtendedTlv::GetLength()` should be used instead.
      *
      * @returns The Length value.
-     *
      */
     uint8_t GetLength(void) const { return mLength; }
 
@@ -104,7 +99,6 @@ public:
      * Sets the Length value.
      *
      * @param[in]  aLength  The Length value.
-     *
      */
     void SetLength(uint8_t aLength) { mLength = aLength; }
 
@@ -114,7 +108,6 @@ public:
      * Correctly returns the TLV size independent of whether the TLV is an Extended TLV or not.
      *
      * @returns The total size include Type, Length, and Value fields.
-     *
      */
     uint32_t GetSize(void) const;
 
@@ -124,7 +117,6 @@ public:
      * Can be used independent of whether the TLV is an Extended TLV or not.
      *
      * @returns A pointer to the value.
-     *
      */
     uint8_t *GetValue(void);
 
@@ -134,7 +126,6 @@ public:
      * Can be used independent of whether the TLV is an Extended TLV or not.
      *
      * @returns A pointer to the value.
-     *
      */
     const uint8_t *GetValue(void) const;
 
@@ -144,7 +135,6 @@ public:
      * Correctly returns the next TLV independent of whether the current TLV is an Extended TLV or not.
      *
      * @returns A pointer to the next TLV.
-     *
      */
     Tlv *GetNext(void) { return reinterpret_cast<Tlv *>(reinterpret_cast<uint8_t *>(this) + GetSize()); }
 
@@ -154,7 +144,6 @@ public:
      * Correctly returns the next TLV independent of whether the current TLV is an Extended TLV or not.
      *
      * @returns A pointer to the next TLV.
-     *
      */
     const Tlv *GetNext(void) const
     {
@@ -170,7 +159,6 @@ public:
      *
      * @retval kErrorNone     Successfully appended the TLV to the message.
      * @retval kErrorNoBufs   Insufficient available buffers to grow the message.
-     *
      */
     Error AppendTo(Message &aMessage) const;
 
@@ -184,7 +172,6 @@ public:
      * @tparam  SimpleTlvType   The simple TLV type to read (must be a sub-class of `SimpleTlvInfo`).
      *
      * @returns The TLV value as `SimpleTlvType::ValueType`.
-     *
      */
     template <typename SimpleTlvType> const typename SimpleTlvType::ValueType &ReadValueAs(void) const
     {
@@ -201,7 +188,6 @@ public:
      * @tparam  UintTlvType     The integer simple TLV type to read (must be a sub-class of `UintTlvInfo`).
      *
      * @returns The TLV value as `UintTlvInfo::UintValueType`.
-     *
      */
     template <typename UintTlvType> typename UintTlvType::UintValueType ReadValueAs(void) const
     {
@@ -218,7 +204,6 @@ public:
      * @tparam  SimpleTlvType   The simple TLV type to read (must be a sub-class of `SimpleTlvInfo`).
      *
      * @param[in] aValue   The new TLV value.
-     *
      */
     template <typename SimpleTlvType> void WriteValueAs(const typename SimpleTlvType::ValueType &aValue)
     {
@@ -235,7 +220,6 @@ public:
      * @tparam  UintTlvType     The integer simple TLV type to read (must be a sub-class of `UintTlvInfo`).
      *
      * @param[in]  aValue   The new TLV value.
-     *
      */
     template <typename UintTlvType> void WriteValueAs(typename UintTlvType::UintValueType aValue)
     {
@@ -247,7 +231,6 @@ public:
 
     /**
      * Represents information for a parsed TLV from a message.
-     *
      */
     struct ParsedInfo
     {
@@ -262,7 +245,6 @@ public:
          *
          * @retval kErrorNone   Successfully parsed the TLV.
          * @retval kErrorParse  The TLV was not well-formed or not fully contained in @p aMessage.
-         *
          */
         Error ParseFrom(const Message &aMessage, uint16_t aOffset);
 
@@ -277,7 +259,6 @@ public:
          *
          * @retval kErrorNone   Successfully parsed the TLV.
          * @retval kErrorParse  The TLV was not well-formed or not contained in @p aOffsetRange or @p aMessage.
-         *
          */
         Error ParseFrom(const Message &aMessage, const OffsetRange &aOffsetRange);
 
@@ -292,7 +273,6 @@ public:
          *
          * @retval kErrorNone      Successfully found and parsed the TLV.
          * @retval kErrorNotFound  Could not find the TLV, or the TLV was not well-formed.
-         *
          */
         Error FindIn(const Message &aMessage, uint8_t aType);
 
@@ -300,7 +280,6 @@ public:
          * Returns the full TLV size in bytes.
          *
          * @returns The TLV size in bytes.
-         *
          */
         uint16_t GetSize(void) const { return mTlvOffsetRange.GetLength(); }
 
@@ -322,7 +301,6 @@ public:
      *
      * @retval kErrorNone        Successfully read the TLV and copied @p aMinLength into @p aValue.
      * @retval kErrorParse       The TLV was not well-formed and could not be parsed.
-     *
      */
     static Error ReadTlvValue(const Message &aMessage, uint16_t aOffset, void *aValue, uint8_t aMinLength);
 
@@ -337,7 +315,6 @@ public:
      *
      * @retval kErrorNone        Successfully read the TLV and updated the @p aValue.
      * @retval kErrorParse       The TLV was not well-formed and could not be parsed.
-     *
      */
     template <typename SimpleTlvType>
     static Error Read(const Message &aMessage, uint16_t aOffset, typename SimpleTlvType::ValueType &aValue)
@@ -356,7 +333,6 @@ public:
      *
      * @retval kErrorNone        Successfully read the TLV and updated the @p aValue.
      * @retval kErrorParse       The TLV was not well-formed and could not be parsed.
-     *
      */
     template <typename UintTlvType>
     static Error Read(const Message &aMessage, uint16_t aOffset, typename UintTlvType::UintValueType &aValue)
@@ -375,7 +351,6 @@ public:
      *
      * @retval kErrorNone        Successfully read the TLV and updated the @p aValue.
      * @retval kErrorParse       The TLV was not well-formed and could not be parsed.
-     *
      */
     template <typename StringTlvType>
     static Error Read(const Message &aMessage, uint16_t aOffset, typename StringTlvType::StringType &aValue)
@@ -395,7 +370,6 @@ public:
      *
      * @retval kErrorNone       Successfully copied the TLV.
      * @retval kErrorNotFound   Could not find the TLV with Type @p aType.
-     *
      */
     static Error FindTlv(const Message &aMessage, uint8_t aType, uint16_t aMaxSize, Tlv &aTlv);
 
@@ -412,7 +386,6 @@ public:
      *
      * @retval kErrorNone       Successfully copied the TLV.
      * @retval kErrorNotFound   Could not find the TLV with Type @p aType.
-     *
      */
     static Error FindTlv(const Message &aMessage, uint8_t aType, uint16_t aMaxSize, Tlv &aTlv, uint16_t &aOffset);
 
@@ -428,7 +401,6 @@ public:
      *
      * @retval kErrorNone       Successfully copied the TLV.
      * @retval kErrorNotFound   Could not find the TLV with Type @p aType.
-     *
      */
     template <typename TlvType> static Error FindTlv(const Message &aMessage, TlvType &aTlv)
     {
@@ -448,7 +420,6 @@ public:
      *
      * @retval kErrorNone       Successfully copied the TLV.
      * @retval kErrorNotFound   Could not find the TLV with Type @p aType.
-     *
      */
     template <typename TlvType> static Error FindTlv(const Message &aMessage, TlvType &aTlv, uint16_t &aOffset)
     {
@@ -466,7 +437,6 @@ public:
      *
      * @retval kErrorNone       Successfully found the TLV.
      * @retval kErrorNotFound   Could not find the TLV with Type @p aType.
-     *
      */
     static Error FindTlvValueOffsetRange(const Message &aMessage, uint8_t aType, OffsetRange &aOffsetRange);
 
@@ -489,7 +459,6 @@ public:
      * @retval kErrorNone       The TLV was found and read successfully. @p aValue is updated.
      * @retval kErrorNotFound   Could not find the TLV with Type @p aType.
      * @retval kErrorParse      TLV was found but it was not well-formed and could not be parsed.
-     *
      */
     template <typename TlvType> static Error Find(const Message &aMessage, void *aValue, uint8_t aLength)
     {
@@ -514,7 +483,6 @@ public:
      * @retval kErrorNone         The TLV was found and read successfully. @p aValue is updated.
      * @retval kErrorNotFound     Could not find the TLV with Type @p aType.
      * @retval kErrorParse        TLV was found but it was not well-formed and could not be parsed.
-     *
      */
     template <typename SimpleTlvType>
     static Error Find(const Message &aMessage, typename SimpleTlvType::ValueType &aValue)
@@ -537,7 +505,6 @@ public:
      * @retval kErrorNone         The TLV was found and read successfully. @p aValue is updated.
      * @retval kErrorNotFound     Could not find the TLV with Type @p aType.
      * @retval kErrorParse        TLV was found but it was not well-formed and could not be parsed.
-     *
      */
     template <typename UintTlvType>
     static Error Find(const Message &aMessage, typename UintTlvType::UintValueType &aValue)
@@ -563,12 +530,41 @@ public:
      * @retval kErrorNone         The TLV was found and read successfully. @p aValue is updated.
      * @retval kErrorNotFound     Could not find the TLV with Type @p aType.
      * @retval kErrorParse        TLV was found but it was not well-formed and could not be parsed.
-     *
      */
     template <typename StringTlvType>
     static Error Find(const Message &aMessage, typename StringTlvType::StringType &aValue)
     {
         return FindStringTlv(aMessage, StringTlvType::kType, StringTlvType::kMaxStringLength, aValue);
+    }
+
+    /**
+     * Appends an empty TLV (no value) with a given type to a message.
+     *
+     * On success this method grows the message by the size of the TLV.
+     *
+     * @param[in]  aMessage      The message to append to.
+     * @param[in]  aType         The TLV type to append.
+     *
+     * @retval kErrorNone     Successfully appended the TLV to the message.
+     * @retval kErrorNoBufs   Insufficient available buffers to grow the message.
+     */
+    static Error AppendEmptyTlv(Message &aMessage, uint8_t aType);
+
+    /**
+     * Appends an empty TLV (no value) with a given type to a message.
+     *
+     * On success this method grows the message by the size of the TLV.
+     *
+     * @tparam     TlvType       The TLV type to append.
+     *
+     * @param[in]  aMessage      The message to append to.
+     *
+     * @retval kErrorNone     Successfully appended the TLV to the message.
+     * @retval kErrorNoBufs   Insufficient available buffers to grow the message.
+     */
+    template <typename TlvType> static Error AppendEmpty(Message &aMessage)
+    {
+        return AppendEmptyTlv(aMessage, TlvType::kType);
     }
 
     /**
@@ -586,7 +582,6 @@ public:
      *
      * @retval kErrorNone     Successfully appended the TLV to the message.
      * @retval kErrorNoBufs   Insufficient available buffers to grow the message.
-     *
      */
     static Error AppendTlv(Message &aMessage, uint8_t aType, const void *aValue, uint16_t aLength);
 
@@ -603,7 +598,6 @@ public:
      *
      * @retval kErrorNone     Successfully appended the TLV to the message.
      * @retval kErrorNoBufs   Insufficient available buffers to grow the message.
-     *
      */
     template <typename TlvType> static Error Append(Message &aMessage, const void *aValue, uint8_t aLength)
     {
@@ -622,7 +616,6 @@ public:
      *
      * @retval kErrorNone     Successfully appended the TLV to the message.
      * @retval kErrorNoBufs   Insufficient available buffers to grow the message.
-     *
      */
     template <typename SimpleTlvType>
     static Error Append(Message &aMessage, const typename SimpleTlvType::ValueType &aValue)
@@ -642,7 +635,6 @@ public:
      *
      * @retval kErrorNone     Successfully appended the TLV to the message.
      * @retval kErrorNoBufs   Insufficient available buffers to grow the message.
-     *
      */
     template <typename UintTlvType> static Error Append(Message &aMessage, typename UintTlvType::UintValueType aValue)
     {
@@ -666,12 +658,89 @@ public:
      *
      * @retval kErrorNone     Successfully appended the TLV to the message.
      * @retval kErrorNoBufs   Insufficient available buffers to grow the message.
-     *
      */
     template <typename StringTlvType> static Error Append(Message &aMessage, const char *aValue)
     {
         return AppendStringTlv(aMessage, StringTlvType::kType, StringTlvType::kMaxStringLength, aValue);
     }
+
+    /**
+     * Validates a given string value for a simple TLV with a UTF-8 string value.
+     *
+     * The @p aValue can be `nullptr` in which case it is treated as an empty string.
+     *
+     * @tparam     StringTlvType  The simple TLV type for which to validate the value (must be a sub-class of
+     *                            `StringTlvInfo`).
+     *
+     * @param[in]  aValue         A pointer to a C string to validate.
+     *
+     * @retval kErrorNone         The string value is valid for the given `StringTlvType`.
+     * @retval kErrorInvalidArgs  The string is not a valid UTF-8 string or its length is longer than the max allowed
+     *                            length specified by `StringTlvType::kMaxStringLength`.
+     */
+    template <typename StringTlvType> static Error ValidateStringValue(const char *aValue)
+    {
+        static_assert(StringTlvType::kMaxStringLength < NumericLimits<uint8_t>::kMax, "String TLV length is invalid");
+
+        return ValidateStringTlvValue(StringTlvType::kMaxStringLength, aValue);
+    }
+
+    //------------------------------------------------------------------------------------------------------------------
+    // Static methods for writing variable length TLVs in a `Message`.
+
+    /**
+     * Represents the opaque type for a bookmark used by `StartTlv()`, `AdjustTlv()`, and `EndTlv()`.
+     */
+    typedef uint16_t Bookmark;
+
+    /**
+     * Starts appending a new TLV to a message.
+     *
+     * This method is used in conjunction with `AdjustTlv()` and `EndTlv()` to append a TLV where the length is not
+     * known in advance. `StartTlv()` writes a placeholder TLV header and records its position in @p aBookmark.
+     * The caller can then append the value of the TLV to the message and finalize the TLV by calling `EndTlv()`.
+     *
+     * @param[in]  aMessage    The message to append the TLV to.
+     * @param[in]  aType       The type of the TLV.
+     * @param[out] aBookmark   A reference to a `Bookmark` to store the position of the new TLV.
+     *
+     * @retval kErrorNone     Successfully started the TLV by appending a placeholder header.
+     * @retval kErrorNoBufs   Insufficient space to append the placeholder header.
+     */
+    static Error StartTlv(Message &aMessage, uint8_t aType, Bookmark &aBookmark);
+
+    /**
+     * Adjusts a TLV header during a staged append, promoting it to an extended TLV if needed.
+     *
+     * This method can be called periodically while appending a large TLV value (after a `StartTlv()` call). It checks
+     * if the current length of the TLV has exceeded the capacity of a standard TLV. If so, it "promotes" the header to
+     * an extended TLV by shifting the already-written value data to make room for the larger header. This avoids a
+     * potentially large memory copy operation in the final `EndTlv()` call.
+     *
+     * This method is optional and intended as a performance optimization for large TLVs.
+     *
+     * @param[in] aMessage    The message containing the TLV.
+     * @param[in] aBookmark   The bookmark from the `StartTlv()` call.
+     *
+     * @retval kErrorNone     The TLV header was either successfully promoted or did not require promotion.
+     * @retval kErrorNoBufs   Insufficient space to promote the header.
+     */
+    static Error AdjustTlv(Message &aMessage, Bookmark aBookmark);
+
+    /**
+     * Finalizes a TLV that was started by `StartTlv()`.
+     *
+     * This method calculates the final length of the TLV value appended after the `StartTlv()` call and writes the
+     * correct length into the TLV header. If the final length requires an extended TLV and the header has not
+     * already been promoted by `AdjustTlv()`, this method will handle the promotion.
+     *
+     * @param[in] aMessage    The message containing the TLV.
+     * @param[in] aBookmark   The bookmark from the `StartTlv()` call.
+     *
+     * @retval kErrorNone     Successfully finalized the TLV.
+     * @retval kErrorNoBufs   Insufficient space if header promotion is required.
+     */
+    static Error EndTlv(Message &aMessage, Bookmark aBookmark);
 
     //------------------------------------------------------------------------------------------------------------------
     // Static methods for finding TLVs within a sequence of TLVs.
@@ -684,7 +753,6 @@ public:
      * @param[in]  aType       The TLV type to search for.
      *
      * @returns A pointer to the TLV within the TLV sequence if found, or `nullptr` if not found.
-     *
      */
     static const Tlv *FindTlv(const void *aTlvsStart, uint16_t aTlvsLength, uint8_t aType);
 
@@ -696,7 +764,6 @@ public:
      * @param[in]  aType       The TLV type to search for.
      *
      * @returns A pointer to the TLV within the TLV sequence if found, or `nullptr` if not found.
-     *
      */
     static Tlv *FindTlv(void *aTlvsStart, uint16_t aTlvsLength, uint8_t aType)
     {
@@ -712,7 +779,6 @@ public:
      * @param[in]  aTlvsLength The length (number of bytes) in TLV sequence.
      *
      * @returns A pointer to the TLV if found, or `nullptr` if not found.
-     *
      */
     template <typename TlvType> static TlvType *Find(void *aTlvsStart, uint16_t aTlvsLength)
     {
@@ -728,7 +794,6 @@ public:
      * @param[in]  aTlvsLength The length (number of bytes) in TLV sequence.
      *
      * @returns A pointer to the TLV if found, or `nullptr` if not found.
-     *
      */
     template <typename TlvType> static const TlvType *Find(const void *aTlvsStart, uint16_t aTlvsLength)
     {
@@ -743,6 +808,8 @@ private:
     static Error ReadStringTlv(const Message &aMessage, uint16_t aOffset, uint8_t aMaxStringLength, char *aValue);
     static Error FindStringTlv(const Message &aMessage, uint8_t aType, uint8_t aMaxStringLength, char *aValue);
     static Error AppendStringTlv(Message &aMessage, uint8_t aType, uint8_t aMaxStringLength, const char *aValue);
+    static Error ValidateStringTlvValue(uint8_t aMaxStringLength, const char *aStringValue);
+    static Error UpdateTlv(Message &aMessage, Bookmark aBookmark, bool aShouldWriteLength);
     template <typename UintType> static Error ReadUintTlv(const Message &aMessage, uint16_t aOffset, UintType &aValue);
     template <typename UintType> static Error FindUintTlv(const Message &aMessage, uint8_t aType, UintType &aValue);
     template <typename UintType> static Error AppendUintTlv(Message &aMessage, uint8_t aType, UintType aValue);
@@ -757,7 +824,6 @@ class ExtendedTlv : public Tlv
 public:
     /**
      * Returns the Length value.
-     *
      */
     uint16_t GetLength(void) const { return BigEndian::HostSwap16(mLength); }
 
@@ -765,7 +831,6 @@ public:
      * Sets the Length value.
      *
      * @param[in]  aLength  The Length value.
-     *
      */
     void SetLength(uint16_t aLength)
     {
@@ -785,7 +850,6 @@ private:
  * @param[in] aTlv   A pointer to a `Tlv` to convert/cast to a `TlvType`.
  *
  * @returns A `TlvType` pointer to `aTlv`.
- *
  */
 template <class TlvType> TlvType *As(Tlv *aTlv) { return static_cast<TlvType *>(aTlv); }
 
@@ -797,7 +861,6 @@ template <class TlvType> TlvType *As(Tlv *aTlv) { return static_cast<TlvType *>(
  * @param[in] aTlv   A pointer to a `Tlv` to convert/cast to a `TlvType`.
  *
  * @returns A `TlvType` pointer to `aTlv`.
- *
  */
 template <class TlvType> const TlvType *As(const Tlv *aTlv) { return static_cast<const TlvType *>(aTlv); }
 
@@ -809,7 +872,6 @@ template <class TlvType> const TlvType *As(const Tlv *aTlv) { return static_cast
  * @param[in] aTlv   A reference to a `Tlv` to convert/cast to a `TlvType`.
  *
  * @returns A `TlvType` reference to `aTlv`.
- *
  */
 template <class TlvType> TlvType &As(Tlv &aTlv) { return static_cast<TlvType &>(aTlv); }
 
@@ -821,7 +883,6 @@ template <class TlvType> TlvType &As(Tlv &aTlv) { return static_cast<TlvType &>(
  * @param[in] aTlv   A reference to a `Tlv` to convert/cast to a `TlvType`.
  *
  * @returns A `TlvType` reference to `aTlv`.
- *
  */
 template <class TlvType> const TlvType &As(const Tlv &aTlv) { return static_cast<const TlvType &>(aTlv); }
 
@@ -829,7 +890,6 @@ template <class TlvType> const TlvType &As(const Tlv &aTlv) { return static_cast
  * Defines constants for a TLV.
  *
  * @tparam kTlvTypeValue   The TLV Type value.
- *
  */
 template <uint8_t kTlvTypeValue> class TlvInfo
 {
@@ -845,14 +905,11 @@ public:
  *
  * @tparam kTlvTypeValue   The TLV Type value.
  * @tparam UintType        The TLV Value's type (must be an unsigned int, i.e. uint8_t, uint16_t, or uint32_t).
- *
  */
 template <uint8_t kTlvTypeValue, typename UintType> class UintTlvInfo : public TlvInfo<kTlvTypeValue>
 {
 public:
-    static_assert(TypeTraits::IsSame<UintType, uint8_t>::kValue || TypeTraits::IsSame<UintType, uint16_t>::kValue ||
-                      TypeTraits::IsSame<UintType, uint32_t>::kValue,
-                  "UintTlv must be used used with unsigned int value type");
+    static_assert(TypeTraits::IsUint<UintType>::kValue, "UintType must be an unsigned int (8, 16, 32, or 64 bit len)");
 
     typedef UintType UintValueType; ///< The TLV Value unsigned int type.
 };
@@ -865,18 +922,13 @@ public:
  *
  * @tparam kTlvTypeValue   The TLV Type value.
  * @tparam TlvValueType    The TLV Value's type (must not be an integral type).
- *
  */
 template <uint8_t kTlvTypeValue, typename TlvValueType> class SimpleTlvInfo : public TlvInfo<kTlvTypeValue>
 {
 public:
     static_assert(!TypeTraits::IsPointer<TlvValueType>::kValue, "TlvValueType must not be a pointer");
-    static_assert(!TypeTraits::IsSame<TlvValueType, uint8_t>::kValue, "SimpleTlv must not use int value type");
-    static_assert(!TypeTraits::IsSame<TlvValueType, uint16_t>::kValue, "SimpleTlv must not use int value type");
-    static_assert(!TypeTraits::IsSame<TlvValueType, uint32_t>::kValue, "SimpleTlv must not use int value type");
-    static_assert(!TypeTraits::IsSame<TlvValueType, int8_t>::kValue, "SimpleTlv must not use int value type");
-    static_assert(!TypeTraits::IsSame<TlvValueType, int16_t>::kValue, "SimpleTlv must not use int value type");
-    static_assert(!TypeTraits::IsSame<TlvValueType, int32_t>::kValue, "SimpleTlv must not use int value type");
+    static_assert(!TypeTraits::IsUint<TlvValueType>::kValue, "SimpleTlv must not use int value type");
+    static_assert(!TypeTraits::IsInt<TlvValueType>::kValue, "SimpleTlv must not use int value type");
 
     typedef TlvValueType ValueType; ///< The TLV Value type.
 };
@@ -889,7 +941,6 @@ public:
  *
  * @tparam kTlvTypeValue        The TLV Type value.
  * @tparam kTlvMaxValueLength   The maximum allowed string length (as TLV value).
- *
  */
 template <uint8_t kTlvTypeValue, uint8_t kTlvMaxValueLength> class StringTlvInfo : public TlvInfo<kTlvTypeValue>
 {
@@ -901,4 +952,4 @@ public:
 
 } // namespace ot
 
-#endif // TLVS_HPP_
+#endif // OT_CORE_COMMON_TLVS_HPP_

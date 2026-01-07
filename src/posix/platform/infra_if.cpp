@@ -55,12 +55,14 @@
 #endif
 
 #include <openthread/border_router.h>
+#include <openthread/border_routing.h>
 #include <openthread/platform/infra_if.h>
 
+#include "infra_if.hpp"
+#include "utils.hpp"
 #include "common/code_utils.hpp"
 #include "common/debug.hpp"
 #include "lib/platform/exit_code.h"
-#include "posix/platform/infra_if.hpp"
 
 bool otPlatInfraIfHasAddress(uint32_t aInfraIfIndex, const otIp6Address *aAddress)
 {
@@ -101,10 +103,11 @@ otError otPlatInfraIfSendIcmp6Nd(uint32_t            aInfraIfIndex,
 }
 #endif
 
-#if OPENTHREAD_CONFIG_NAT64_BORDER_ROUTING_ENABLE && OPENTHREAD_POSIX_CONFIG_NAT64_AIL_PREFIX_ENABLE
+#if OPENTHREAD_CONFIG_NAT64_BORDER_ROUTING_ENABLE
 otError otPlatInfraIfDiscoverNat64Prefix(uint32_t aInfraIfIndex)
 {
-    return ot::Posix::InfraNetif::Get().DiscoverNat64Prefix(aInfraIfIndex);
+    OT_UNUSED_VARIABLE(aInfraIfIndex);
+    return OT_ERROR_NOT_IMPLEMENTED;
 }
 #endif
 
@@ -272,7 +275,19 @@ otError InfraNetif::SendIcmp6Nd(uint32_t            aInfraIfIndex,
 
     if (rval < 0)
     {
-        LogWarn("failed to send ICMPv6 message: %s", strerror(errno));
+        switch (errno)
+        {
+        case EADDRNOTAVAIL:
+        case ENODEV:
+            LogWarn("failed to send ICMPv6 message: %s, suggests infra link might be down, checking status.",
+                    strerror(errno));
+            SuccessOrDie(otPlatInfraIfStateChanged(gInstance, mInfraIfIndex, IsRunning()));
+            break;
+        default:
+            LogWarn("failed to send ICMPv6 message: %s", strerror(errno));
+            break;
+        }
+
         ExitNow(error = OT_ERROR_FAILED);
     }
 
@@ -289,7 +304,9 @@ exit:
 
 bool InfraNetif::IsRunning(void) const
 {
-    return mInfraIfIndex ? ((GetFlags() & IFF_RUNNING) && HasLinkLocalAddress()) : false;
+    return mInfraIfIndex
+               ? (if_nametoindex(mInfraIfName) == mInfraIfIndex && (GetFlags() & IFF_RUNNING) && HasLinkLocalAddress())
+               : false;
 }
 
 uint32_t InfraNetif::GetFlags(void) const
@@ -411,6 +428,10 @@ void InfraNetif::Init(void)
 #ifdef __linux__
     mNetLinkSocket = CreateNetLinkSocket();
 #endif
+
+#if OT_POSIX_CONFIG_DHCP6_PD_SOCKET_ENABLE
+    mDhcp6PdSocket.Init();
+#endif
 }
 
 void InfraNetif::SetInfraNetif(const char *aIfName, int aIcmp6Socket)
@@ -462,12 +483,16 @@ void InfraNetif::SetUp(void)
 #endif
 
 #if OPENTHREAD_CONFIG_BORDER_ROUTING_ENABLE
-    SuccessOrDie(otBorderRoutingInit(gInstance, mInfraIfIndex, otSysInfraIfIsRunning()));
+    SuccessOrDie(otBorderRoutingInit(gInstance, mInfraIfIndex, IsRunning()));
     SuccessOrDie(otBorderRoutingSetEnabled(gInstance, /* aEnabled */ true));
 #endif
 
 #if OPENTHREAD_POSIX_CONFIG_BACKBONE_ROUTER_MULTICAST_ROUTING_ENABLE
     mMulticastRoutingManager.SetUp();
+#endif
+
+#if OT_POSIX_CONFIG_DHCP6_PD_SOCKET_ENABLE
+    mDhcp6PdSocket.SetUp();
 #endif
 
     Mainloop::Manager::Get().Add(*this);
@@ -484,6 +509,10 @@ void InfraNetif::TearDown(void)
     IgnoreError(otBorderRoutingSetEnabled(gInstance, false));
 #endif
 
+#if OT_POSIX_CONFIG_DHCP6_PD_SOCKET_ENABLE
+    mDhcp6PdSocket.TearDown();
+#endif
+
 #if OPENTHREAD_POSIX_CONFIG_BACKBONE_ROUTER_MULTICAST_ROUTING_ENABLE
     mMulticastRoutingManager.TearDown();
 #endif
@@ -493,6 +522,10 @@ void InfraNetif::TearDown(void)
 
 void InfraNetif::Deinit(void)
 {
+#if OT_POSIX_CONFIG_DHCP6_PD_SOCKET_ENABLE
+    mDhcp6PdSocket.Deinit();
+#endif
+
 #if OPENTHREAD_CONFIG_BORDER_ROUTING_ENABLE
     if (mInfraIfIcmp6Socket != -1)
     {
@@ -513,8 +546,12 @@ void InfraNetif::Deinit(void)
     mInfraIfIndex   = 0;
 }
 
-void InfraNetif::Update(otSysMainloopContext &aContext)
+void InfraNetif::Update(Mainloop::Context &aContext)
 {
+#if OT_POSIX_CONFIG_DHCP6_PD_SOCKET_ENABLE
+    mDhcp6PdSocket.Update(aContext);
+#endif
+
 #ifdef __linux__
     VerifyOrExit(mNetLinkSocket != -1);
 #endif
@@ -522,13 +559,11 @@ void InfraNetif::Update(otSysMainloopContext &aContext)
 #if OPENTHREAD_CONFIG_BORDER_ROUTING_ENABLE
     VerifyOrExit(mInfraIfIcmp6Socket != -1);
 
-    FD_SET(mInfraIfIcmp6Socket, &aContext.mReadFdSet);
-    aContext.mMaxFd = OT_MAX(aContext.mMaxFd, mInfraIfIcmp6Socket);
+    Mainloop::AddToReadFdSet(mInfraIfIcmp6Socket, aContext);
 #endif
 
 #ifdef __linux__
-    FD_SET(mNetLinkSocket, &aContext.mReadFdSet);
-    aContext.mMaxFd = OT_MAX(aContext.mMaxFd, mNetLinkSocket);
+    Mainloop::AddToReadFdSet(mNetLinkSocket, aContext);
 #endif
 
 exit:
@@ -663,145 +698,6 @@ exit:
 }
 #endif // OPENTHREAD_CONFIG_BORDER_ROUTING_ENABLE
 
-#if OPENTHREAD_CONFIG_NAT64_BORDER_ROUTING_ENABLE && OPENTHREAD_POSIX_CONFIG_NAT64_AIL_PREFIX_ENABLE
-const char         InfraNetif::kWellKnownIpv4OnlyName[]   = "ipv4only.arpa";
-const otIp4Address InfraNetif::kWellKnownIpv4OnlyAddress1 = {{{192, 0, 0, 170}}};
-const otIp4Address InfraNetif::kWellKnownIpv4OnlyAddress2 = {{{192, 0, 0, 171}}};
-const uint8_t      InfraNetif::kValidNat64PrefixLength[]  = {96, 64, 56, 48, 40, 32};
-
-#ifdef __linux__
-void InfraNetif::DiscoverNat64PrefixDone(union sigval sv)
-{
-    struct gaicb    *req = (struct gaicb *)sv.sival_ptr;
-    struct addrinfo *res = (struct addrinfo *)req->ar_result;
-
-    otIp6Prefix prefix = {};
-
-    VerifyOrExit((char *)req->ar_name == kWellKnownIpv4OnlyName);
-
-    LogInfo("Handling host address response for %s", kWellKnownIpv4OnlyName);
-
-    // We extract the first valid NAT64 prefix from the address look-up response.
-    for (struct addrinfo *rp = res; rp != NULL && prefix.mLength == 0; rp = rp->ai_next)
-    {
-        struct sockaddr_in6 *ip6Addr;
-        otIp6Address         ip6Address;
-
-        if (rp->ai_family != AF_INET6)
-        {
-            continue;
-        }
-
-        ip6Addr = reinterpret_cast<sockaddr_in6 *>(rp->ai_addr);
-        memcpy(&ip6Address.mFields.m8, &ip6Addr->sin6_addr.s6_addr, OT_IP6_ADDRESS_SIZE);
-        for (uint8_t length : kValidNat64PrefixLength)
-        {
-            otIp4Address ip4Address;
-
-            otIp4ExtractFromIp6Address(length, &ip6Address, &ip4Address);
-            if (otIp4IsAddressEqual(&ip4Address, &kWellKnownIpv4OnlyAddress1) ||
-                otIp4IsAddressEqual(&ip4Address, &kWellKnownIpv4OnlyAddress2))
-            {
-                // We check that the well-known IPv4 address is present only once in the IPv6 address.
-                // In case another instance of the value is found for another prefix length, we ignore this address
-                // and search for the other well-known IPv4 address (per RFC 7050 section 3).
-                bool foundDuplicate = false;
-
-                for (uint8_t dupLength : kValidNat64PrefixLength)
-                {
-                    otIp4Address dupIp4Address;
-
-                    if (dupLength == length)
-                    {
-                        continue;
-                    }
-
-                    otIp4ExtractFromIp6Address(dupLength, &ip6Address, &dupIp4Address);
-                    if (otIp4IsAddressEqual(&dupIp4Address, &ip4Address))
-                    {
-                        foundDuplicate = true;
-                        break;
-                    }
-                }
-
-                if (!foundDuplicate)
-                {
-                    otIp6GetPrefix(&ip6Address, length, &prefix);
-                    break;
-                }
-            }
-
-            if (prefix.mLength != 0)
-            {
-                break;
-            }
-        }
-    }
-
-#if OPENTHREAD_CONFIG_BORDER_ROUTING_ENABLE
-    otPlatInfraIfDiscoverNat64PrefixDone(gInstance, Get().mInfraIfIndex, &prefix);
-#endif
-
-exit:
-    freeaddrinfo(res);
-    freeaddrinfo((struct addrinfo *)req->ar_request);
-    free(req);
-}
-#endif // #ifdef __linux__
-
-otError InfraNetif::DiscoverNat64Prefix(uint32_t aInfraIfIndex)
-{
-#ifdef __linux__
-    otError          error   = OT_ERROR_NONE;
-    struct addrinfo *hints   = nullptr;
-    struct gaicb    *reqs[1] = {nullptr};
-    struct sigevent  sig;
-    int              status;
-
-    VerifyOrExit(aInfraIfIndex == mInfraIfIndex, error = OT_ERROR_DROP);
-    hints = (struct addrinfo *)malloc(sizeof(struct addrinfo));
-    VerifyOrExit(hints != nullptr, error = OT_ERROR_NO_BUFS);
-    memset(hints, 0, sizeof(struct addrinfo));
-    hints->ai_family   = AF_INET6;
-    hints->ai_socktype = SOCK_STREAM;
-
-    reqs[0] = (struct gaicb *)malloc(sizeof(struct gaicb));
-    VerifyOrExit(reqs[0] != nullptr, error = OT_ERROR_NO_BUFS);
-    memset(reqs[0], 0, sizeof(struct gaicb));
-    reqs[0]->ar_name    = kWellKnownIpv4OnlyName;
-    reqs[0]->ar_request = hints;
-
-    memset(&sig, 0, sizeof(struct sigevent));
-    sig.sigev_notify          = SIGEV_THREAD;
-    sig.sigev_value.sival_ptr = reqs[0];
-    sig.sigev_notify_function = &InfraNetif::DiscoverNat64PrefixDone;
-
-    status = getaddrinfo_a(GAI_NOWAIT, reqs, 1, &sig);
-
-    if (status != 0)
-    {
-        LogNote("getaddrinfo_a failed: %s", gai_strerror(status));
-        ExitNow(error = OT_ERROR_FAILED);
-    }
-    LogInfo("getaddrinfo_a requested for %s", kWellKnownIpv4OnlyName);
-exit:
-    if (error != OT_ERROR_NONE)
-    {
-        if (hints)
-        {
-            freeaddrinfo(hints);
-        }
-        free(reqs[0]);
-    }
-    return error;
-#else
-    OT_UNUSED_VARIABLE(aInfraIfIndex);
-
-    return OT_ERROR_NOT_IMPLEMENTED;
-#endif // #ifdef __linux__
-}
-#endif // OPENTHREAD_CONFIG_NAT64_BORDER_ROUTING_ENABLE && OPENTHREAD_POSIX_CONFIG_NAT64_AIL_PREFIX_ENABLE
-
 #if OPENTHREAD_CONFIG_BORDER_ROUTING_ENABLE
 void InfraNetif::SetInfraNetifIcmp6SocketForBorderRouting(int aIcmp6Socket)
 {
@@ -818,8 +714,12 @@ void InfraNetif::SetInfraNetifIcmp6SocketForBorderRouting(int aIcmp6Socket)
 }
 #endif
 
-void InfraNetif::Process(const otSysMainloopContext &aContext)
+void InfraNetif::Process(const Mainloop::Context &aContext)
 {
+#if OT_POSIX_CONFIG_DHCP6_PD_SOCKET_ENABLE
+    mDhcp6PdSocket.Process(aContext);
+#endif
+
 #if OPENTHREAD_CONFIG_BORDER_ROUTING_ENABLE
     VerifyOrExit(mInfraIfIcmp6Socket != -1);
 #endif
@@ -829,14 +729,14 @@ void InfraNetif::Process(const otSysMainloopContext &aContext)
 #endif
 
 #if OPENTHREAD_CONFIG_BORDER_ROUTING_ENABLE
-    if (FD_ISSET(mInfraIfIcmp6Socket, &aContext.mReadFdSet))
+    if (Mainloop::IsFdReadable(mInfraIfIcmp6Socket, aContext))
     {
         ReceiveIcmp6Message();
     }
 #endif
 
 #ifdef __linux__
-    if (FD_ISSET(mNetLinkSocket, &aContext.mReadFdSet))
+    if (Mainloop::IsFdReadable(mNetLinkSocket, aContext))
     {
         ReceiveNetLinkMessage();
     }

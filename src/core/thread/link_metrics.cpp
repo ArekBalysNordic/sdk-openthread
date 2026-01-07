@@ -35,16 +35,7 @@
 
 #if OPENTHREAD_CONFIG_MLE_LINK_METRICS_INITIATOR_ENABLE || OPENTHREAD_CONFIG_MLE_LINK_METRICS_SUBJECT_ENABLE
 
-#include "common/code_utils.hpp"
-#include "common/encoding.hpp"
-#include "common/locator_getters.hpp"
-#include "common/log.hpp"
-#include "common/num_utils.hpp"
-#include "common/numeric_limits.hpp"
 #include "instance/instance.hpp"
-#include "mac/mac.hpp"
-#include "thread/link_metrics_tlvs.hpp"
-#include "thread/neighbor_table.hpp"
 
 namespace ot {
 namespace LinkMetrics {
@@ -95,29 +86,23 @@ exit:
 
 Error Initiator::AppendLinkMetricsQueryTlv(Message &aMessage, const QueryInfo &aInfo)
 {
-    Error error = kErrorNone;
-    Tlv   tlv;
+    Error         error = kErrorNone;
+    Tlv::Bookmark tlvBookmark;
 
     // The MLE Link Metrics Query TLV has two sub-TLVs:
     // - Query ID sub-TLV with series ID as value.
     // - Query Options sub-TLV with Type IDs as value.
 
-    tlv.SetType(Mle::Tlv::kLinkMetricsQuery);
-    tlv.SetLength(sizeof(Tlv) + sizeof(uint8_t) + ((aInfo.mTypeIdCount == 0) ? 0 : (sizeof(Tlv) + aInfo.mTypeIdCount)));
-
-    SuccessOrExit(error = aMessage.Append(tlv));
+    SuccessOrExit(error = Tlv::StartTlv(aMessage, Mle::Tlv::kLinkMetricsQuery, tlvBookmark));
 
     SuccessOrExit(error = Tlv::Append<QueryIdSubTlv>(aMessage, aInfo.mSeriesId));
 
     if (aInfo.mTypeIdCount != 0)
     {
-        QueryOptionsSubTlv queryOptionsTlv;
-
-        queryOptionsTlv.Init();
-        queryOptionsTlv.SetLength(aInfo.mTypeIdCount);
-        SuccessOrExit(error = aMessage.Append(queryOptionsTlv));
-        SuccessOrExit(error = aMessage.AppendBytes(aInfo.mTypeIds, aInfo.mTypeIdCount));
+        SuccessOrExit(error = Tlv::AppendTlv(aMessage, QueryOptionsSubTlv::kType, aInfo.mTypeIds, aInfo.mTypeIdCount));
     }
+
+    error = Tlv::EndTlv(aMessage, tlvBookmark);
 
 exit:
     return error;
@@ -395,7 +380,7 @@ Error Initiator::FindNeighbor(const Ip6::Address &aDestination, Neighbor *&aNeig
     aNeighbor = nullptr;
 
     VerifyOrExit(aDestination.IsLinkLocalUnicast());
-    aDestination.GetIid().ConvertToMacAddress(macAddress);
+    macAddress.SetExtendedFromIid(aDestination.GetIid());
 
     aNeighbor = Get<NeighborTable>().FindNeighbor(macAddress);
     VerifyOrExit(aNeighbor != nullptr);
@@ -418,13 +403,11 @@ Subject::Subject(Instance &aInstance)
 Error Subject::AppendReport(Message &aMessage, const Message &aRequestMessage, Neighbor &aNeighbor)
 {
     Error           error = kErrorNone;
-    Tlv             tlv;
     Tlv::ParsedInfo tlvInfo;
     uint8_t         queryId;
     bool            hasQueryId = false;
-    uint16_t        length;
-    uint16_t        offset;
     OffsetRange     offsetRange;
+    Tlv::Bookmark   tlvBookmark;
     MetricsValues   values;
 
     values.Clear();
@@ -469,9 +452,7 @@ Error Subject::AppendReport(Message &aMessage, const Message &aRequestMessage, N
     // Append MLE Link Metrics Report TLV and its sub-TLVs to
     // `aMessage`.
 
-    offset = aMessage.GetLength();
-    tlv.SetType(Mle::Tlv::kLinkMetricsReport);
-    SuccessOrExit(error = aMessage.Append(tlv));
+    SuccessOrExit(error = Tlv::StartTlv(aMessage, Mle::Tlv::kLinkMetricsReport, tlvBookmark));
 
     if (queryId == kQueryIdSingleProbe)
     {
@@ -504,10 +485,7 @@ Error Subject::AppendReport(Message &aMessage, const Message &aRequestMessage, N
         }
     }
 
-    // Update the TLV length in message.
-    length = aMessage.GetLength() - offset - sizeof(Tlv);
-    tlv.SetLength(static_cast<uint8_t>(length));
-    aMessage.Write(offset, tlv);
+    error = Tlv::EndTlv(aMessage, tlvBookmark);
 
 exit:
     LogDebg("AppendReport, error:%s", ErrorToString(error));

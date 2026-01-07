@@ -43,6 +43,7 @@
 #include <openthread/cli.h>
 #include <openthread/heap.h>
 #include <openthread/tasklet.h>
+#include <openthread/trel.h>
 #include <openthread/platform/alarm-milli.h>
 #include <openthread/platform/infra_if.h>
 #include <openthread/platform/logging.h>
@@ -138,7 +139,7 @@ void platformInitRcpMode(otPlatformConfig *aPlatformConfig)
     // For Dry-Run option, only init the co-processor.
     VerifyOrExit(!aPlatformConfig->mDryRun);
 
-#if OPENTHREAD_CONFIG_RADIO_LINK_TREL_ENABLE
+#if OPENTHREAD_CONFIG_RADIO_LINK_TREL_ENABLE && !OPENTHREAD_POSIX_CONFIG_TREL_SELECT_INFRA_IF
     platformTrelInit(getTrelRadioUrl(aPlatformConfig));
 #endif
     platformRandomInit();
@@ -179,6 +180,8 @@ void platformInitNcpMode(otPlatformConfig *aPlatformConfig)
 
 void platformInit(otPlatformConfig *aPlatformConfig)
 {
+    platformSettingsInit(aPlatformConfig->mDataPath);
+
 #if OPENTHREAD_POSIX_CONFIG_BACKTRACE_ENABLE
     platformBacktraceInit();
 #endif
@@ -234,6 +237,10 @@ void platformSetUp(otPlatformConfig *aPlatformConfig)
 
 #if OPENTHREAD_CONFIG_PLATFORM_NETIF_ENABLE
     platformNetifSetUp();
+#endif
+
+#if OPENTHREAD_CONFIG_DNS_UPSTREAM_QUERY_ENABLE
+    platformResolverSetUp();
 #endif
 
 #if OPENTHREAD_CONFIG_PLATFORM_UDP_ENABLE
@@ -326,7 +333,8 @@ void platformDeinitRcpMode(void)
 #if OPENTHREAD_CONFIG_PLATFORM_NETIF_ENABLE
     platformNetifDeinit();
 #endif
-#if OPENTHREAD_CONFIG_RADIO_LINK_TREL_ENABLE
+#if OPENTHREAD_CONFIG_RADIO_LINK_TREL_ENABLE && !OPENTHREAD_POSIX_CONFIG_TREL_SELECT_INFRA_IF
+    otPlatTrelDisable(/* aInstance */ nullptr);
     platformTrelDeinit();
 #endif
 
@@ -371,7 +379,6 @@ void otSysDeinit(void)
  * @param[in,out]  aContext  A reference to the mainloop context.
  *
  * @returns The value returned from select().
- *
  */
 static int trySelect(otSysMainloopContext &aContext)
 {
@@ -490,13 +497,14 @@ void otSysMainloopProcess(otInstance *aInstance, const otSysMainloopContext *aMa
 bool IsSystemDryRun(void) { return gDryRun; }
 
 #if OPENTHREAD_POSIX_CONFIG_DAEMON_ENABLE && OPENTHREAD_POSIX_CONFIG_DAEMON_CLI_ENABLE
-void otSysCliInitUsingDaemon(otInstance *aInstance)
+namespace {
+int OutputCallback(void *aContext, const char *aFormat, va_list aArguments) OT_TOOL_PRINTF_STYLE_FORMAT_ARG_CHECK(2, 0);
+
+int OutputCallback(void *aContext, const char *aFormat, va_list aArguments)
 {
-    otCliInit(
-        aInstance,
-        [](void *aContext, const char *aFormat, va_list aArguments) -> int {
-            return static_cast<ot::Posix::Daemon *>(aContext)->OutputFormatV(aFormat, aArguments);
-        },
-        &ot::Posix::Daemon::Get());
+    return static_cast<ot::Posix::Daemon *>(aContext)->OutputFormatV(aFormat, aArguments);
 }
+} // namespace
+
+void otSysCliInitUsingDaemon(otInstance *aInstance) { otCliInit(aInstance, OutputCallback, &ot::Posix::Daemon::Get()); }
 #endif

@@ -29,33 +29,13 @@
 /**
  * @file
  *   This file implements MeshCoP Datasets manager to process commands.
- *
  */
 
 #include "meshcop/dataset_manager.hpp"
 
 #if OPENTHREAD_FTD
 
-#include <stdio.h>
-
-#include <openthread/platform/radio.h>
-
-#include "coap/coap_message.hpp"
-#include "common/as_core_type.hpp"
-#include "common/code_utils.hpp"
-#include "common/debug.hpp"
-#include "common/locator_getters.hpp"
-#include "common/log.hpp"
-#include "common/random.hpp"
-#include "common/timer.hpp"
 #include "instance/instance.hpp"
-#include "meshcop/dataset.hpp"
-#include "meshcop/meshcop.hpp"
-#include "meshcop/meshcop_leader.hpp"
-#include "meshcop/meshcop_tlvs.hpp"
-#include "thread/thread_netif.hpp"
-#include "thread/thread_tlvs.hpp"
-#include "thread/uri_paths.hpp"
 
 namespace ot {
 namespace MeshCoP {
@@ -118,7 +98,7 @@ Error DatasetManager::ProcessSetOrReplaceRequest(MgmtCommand          aCommand,
     }
 
     if ((dataset.Read<MeshLocalPrefixTlv>(meshLocalPrefix) == kErrorNone) &&
-        (meshLocalPrefix != Get<Mle::MleRouter>().GetMeshLocalPrefix()))
+        (meshLocalPrefix != Get<Mle::Mle>().GetMeshLocalPrefix()))
     {
         aInfo.mAffectsConnectivity = true;
     }
@@ -198,7 +178,7 @@ Error DatasetManager::ProcessSetOrReplaceRequest(MgmtCommand          aCommand,
         }
         else
         {
-            delayTimer = Max(delayTimer, Get<Leader>().GetDelayTimerMinimal());
+            delayTimer = Max(delayTimer, Get<PendingDatasetManager>().GetDelayTimerMinimal());
         }
 
         IgnoreError(aInfo.mDataset.Write<DelayTimerTlv>(delayTimer));
@@ -282,7 +262,7 @@ Error ActiveDatasetManager::GenerateLocal(void)
     Error   error = kErrorNone;
     Dataset dataset;
 
-    VerifyOrExit(Get<Mle::MleRouter>().IsAttached(), error = kErrorInvalidState);
+    VerifyOrExit(Get<Mle::Mle>().IsAttached(), error = kErrorInvalidState);
     VerifyOrExit(!mLocalTimestamp.IsValid(), error = kErrorAlready);
 
     IgnoreError(Read(dataset));
@@ -303,6 +283,14 @@ Error ActiveDatasetManager::GenerateLocal(void)
         IgnoreError(dataset.Write<ChannelTlv>(channelValue));
     }
 
+    if (!dataset.Contains<WakeupChannelTlv>())
+    {
+        ChannelTlvValue channelValue;
+
+        channelValue.SetChannelAndPage(Get<Mac::Mac>().GetWakeupChannel());
+        IgnoreError(dataset.Write<WakeupChannelTlv>(channelValue));
+    }
+
     if (!dataset.Contains<ChannelMaskTlv>())
     {
         ChannelMaskTlv::Value value;
@@ -318,7 +306,7 @@ Error ActiveDatasetManager::GenerateLocal(void)
 
     if (!dataset.Contains<MeshLocalPrefixTlv>())
     {
-        IgnoreError(dataset.Write<MeshLocalPrefixTlv>(Get<Mle::MleRouter>().GetMeshLocalPrefix()));
+        IgnoreError(dataset.Write<MeshLocalPrefixTlv>(Get<Mle::Mle>().GetMeshLocalPrefix()));
     }
 
     if (!dataset.Contains<NetworkKeyTlv>())
@@ -405,6 +393,17 @@ exit:
 
 void PendingDatasetManager::StartLeader(void) { StartDelayTimer(); }
 
+Error PendingDatasetManager::SetDelayTimerMinimal(uint32_t aDelayTimerMinimal)
+{
+    Error error = kErrorNone;
+
+    VerifyOrExit((aDelayTimerMinimal != 0 && aDelayTimerMinimal < DelayTimerTlv::kMinDelay), error = kErrorInvalidArgs);
+    mDelayTimerMinimal = aDelayTimerMinimal;
+
+exit:
+    return error;
+}
+
 template <>
 void PendingDatasetManager::HandleTmf<kUriPendingSet>(Coap::Message &aMessage, const Ip6::MessageInfo &aMessageInfo)
 {
@@ -423,7 +422,7 @@ void PendingDatasetManager::ApplyActiveDataset(Dataset &aDataset)
 
     SuccessOrExit(aDataset.Read<ActiveTimestampTlv>(activeTimestamp));
     SuccessOrExit(aDataset.Write<PendingTimestampTlv>(activeTimestamp));
-    SuccessOrExit(aDataset.Write<DelayTimerTlv>(Get<Leader>().GetDelayTimerMinimal()));
+    SuccessOrExit(aDataset.Write<DelayTimerTlv>(GetDelayTimerMinimal()));
 
     IgnoreError(DatasetManager::Save(aDataset));
     StartDelayTimer(aDataset);

@@ -72,10 +72,22 @@
 #include <fcntl.h>
 #include <ifaddrs.h>
 #ifdef __linux__
+#include <linux/if_addr.h>
 #include <linux/if_link.h>
 #include <linux/if_tun.h>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
+
+#if !OPENTHREAD_POSIX_CONFIG_INSTALL_OMR_ROUTES_ENABLE && \
+    (OPENTHREAD_POSIX_CONFIG_NETIF_LINK_LOCAL_ROUTE_METRIC || OPENTHREAD_POSIX_CONFIG_NETIF_PREFIX_ROUTE_METRIC)
+#include <linux/version.h>
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 18, 0)
+#error "Cannot set route metric on kernel < 4.18. " \
+    "Consider using OPENTHREAD_POSIX_CONFIG_INSTALL_OMR_ROUTES_ENABLE "\
+    "to install OMR routes with higher priority on kernel < 4.18"
+#endif // LINUX_VERSION_CODE >= KERNEL_VERSION(4, 18, 0)
+#endif
+
 #endif // __linux__
 #include <math.h>
 #include <net/if.h>
@@ -153,14 +165,13 @@ extern int
 
 #include "ip6_utils.hpp"
 #include "logger.hpp"
+#include "mainloop.hpp"
 #include "resolver.hpp"
+#include "utils.hpp"
 #include "common/code_utils.hpp"
 
 unsigned int gNetifIndex = 0;
 char         gNetifName[IFNAMSIZ];
-#if OPENTHREAD_CONFIG_NAT64_TRANSLATOR_ENABLE
-static otIp4Cidr sActiveNat64Cidr;
-#endif
 
 const char *otSysGetThreadNetifName(void) { return gNetifName; }
 
@@ -209,10 +220,6 @@ static constexpr uint32_t kExternalRoutePriority  = OPENTHREAD_POSIX_CONFIG_EXTE
 static constexpr uint8_t  kMaxExternalRoutesNum   = OPENTHREAD_POSIX_CONFIG_MAX_EXTERNAL_ROUTE_NUM;
 static uint8_t            sAddedExternalRoutesNum = 0;
 static otIp6Prefix        sAddedExternalRoutes[kMaxExternalRoutesNum];
-#endif
-
-#if OPENTHREAD_CONFIG_BORDER_ROUTING_ENABLE && OPENTHREAD_CONFIG_NAT64_TRANSLATOR_ENABLE
-static constexpr uint32_t kNat64RoutePriority = 100; ///< Priority for route to NAT64 CIDR, 100 means a high priority.
 #endif
 
 #if defined(RTM_NEWMADDR) || defined(__NetBSD__)
@@ -288,6 +295,12 @@ static bool sIsSyncingState = false;
 #define OPENTHREAD_POSIX_LOG_TUN_PACKETS 0
 
 static const char kLogModuleName[] = "Netif";
+
+static void LogCrit(const char *aFormat, ...) OT_TOOL_PRINTF_STYLE_FORMAT_ARG_CHECK(1, 2);
+static void LogWarn(const char *aFormat, ...) OT_TOOL_PRINTF_STYLE_FORMAT_ARG_CHECK(1, 2);
+static void LogNote(const char *aFormat, ...) OT_TOOL_PRINTF_STYLE_FORMAT_ARG_CHECK(1, 2);
+static void LogInfo(const char *aFormat, ...) OT_TOOL_PRINTF_STYLE_FORMAT_ARG_CHECK(1, 2);
+static void LogDebg(const char *aFormat, ...) OT_TOOL_PRINTF_STYLE_FORMAT_ARG_CHECK(1, 2);
 
 static void LogCrit(const char *aFormat, ...)
 {
@@ -432,6 +445,7 @@ static void UpdateUnicastLinux(otInstance *aInstance, const otIp6AddressInfo &aA
 {
     OT_UNUSED_VARIABLE(aInstance);
 
+    static constexpr uint8_t kLinkLocalScope = 2;
     struct
     {
         struct nlmsghdr  nh;
@@ -455,7 +469,7 @@ static void UpdateUnicastLinux(otInstance *aInstance, const otIp6AddressInfo &aA
 
     AddRtAttr(&req.nh, sizeof(req), IFA_LOCAL, aAddressInfo.mAddress, sizeof(*aAddressInfo.mAddress));
 
-    if (!aAddressInfo.mPreferred || aAddressInfo.mMeshLocal)
+    if (!aAddressInfo.mPreferred || aAddressInfo.mMeshLocal || aAddressInfo.mScope == kLinkLocalScope)
     {
         struct ifa_cacheinfo cacheinfo;
 
@@ -478,12 +492,22 @@ static void UpdateUnicastLinux(otInstance *aInstance, const otIp6AddressInfo &aA
     else
 #endif
     {
-#if OPENTHREAD_POSIX_CONFIG_NETIF_PREFIX_ROUTE_METRIC > 0
-        static constexpr uint8_t kLinkLocalScope = 2;
+        uint32_t route_metric = 0;
+        OT_UNUSED_VARIABLE(route_metric);
 
-        if (aAddressInfo.mScope > kLinkLocalScope)
+        if (aAddressInfo.mScope == kLinkLocalScope)
         {
-            AddRtAttrUint32(&req.nh, sizeof(req), IFA_RT_PRIORITY, OPENTHREAD_POSIX_CONFIG_NETIF_PREFIX_ROUTE_METRIC);
+            route_metric = OPENTHREAD_POSIX_CONFIG_NETIF_LINK_LOCAL_ROUTE_METRIC;
+        }
+        else if (aAddressInfo.mScope > kLinkLocalScope)
+        {
+            route_metric = OPENTHREAD_POSIX_CONFIG_NETIF_PREFIX_ROUTE_METRIC;
+        }
+
+#if OPENTHREAD_POSIX_CONFIG_NETIF_LINK_LOCAL_ROUTE_METRIC || OPENTHREAD_POSIX_CONFIG_NETIF_PREFIX_ROUTE_METRIC
+        if (route_metric > 0)
+        {
+            AddRtAttrUint32(&req.nh, sizeof(req), IFA_RT_PRIORITY, route_metric);
         }
 #endif
     }
@@ -962,6 +986,11 @@ static void processAddressChange(const otIp6AddressInfo *aAddressInfo, bool aIsA
 }
 
 #if defined(__linux__) && OPENTHREAD_CONFIG_NAT64_TRANSLATOR_ENABLE
+
+static otIp4Cidr sActiveNat64Cidr;
+
+static constexpr uint32_t kNat64RoutePriority = 100; // Priority for route to NAT64 CIDR, 100 means a high priority.
+
 static bool isSameIp4Cidr(const otIp4Cidr &aCidr1, const otIp4Cidr &aCidr2)
 {
     bool res = true;
@@ -1095,7 +1124,9 @@ exit:
     }
 }
 
-#if OPENTHREAD_CONFIG_NAT64_TRANSLATOR_ENABLE || OPENTHREAD_CONFIG_BORDER_ROUTING_DHCP6_PD_ENABLE
+#if OPENTHREAD_CONFIG_NAT64_TRANSLATOR_ENABLE ||                                                    \
+    (OPENTHREAD_CONFIG_BORDER_ROUTING_ENABLE && OPENTHREAD_CONFIG_BORDER_ROUTING_DHCP6_PD_ENABLE && \
+     !OPENTHREAD_CONFIG_BORDER_ROUTING_DHCP6_PD_CLIENT_ENABLE)
 static constexpr uint8_t kIpVersion4 = 4;
 static constexpr uint8_t kIpVersion6 = 6;
 
@@ -1111,11 +1142,11 @@ static uint8_t getIpVersion(const uint8_t *data)
 }
 #endif
 
-#if OPENTHREAD_CONFIG_BORDER_ROUTING_DHCP6_PD_ENABLE
+#if OPENTHREAD_CONFIG_BORDER_ROUTING_ENABLE && OPENTHREAD_CONFIG_BORDER_ROUTING_DHCP6_PD_ENABLE && \
+    !OPENTHREAD_CONFIG_BORDER_ROUTING_DHCP6_PD_CLIENT_ENABLE
 
 /**
  * Returns nullptr if data does not point to a valid ICMPv6 RA message.
- *
  */
 static const uint8_t *getIcmp6RaMessage(const uint8_t *data, ssize_t length)
 {
@@ -1137,7 +1168,6 @@ exit:
 
 /**
  * Returns false if the message is not an ICMPv6 RA message.
- *
  */
 static otError tryProcessIcmp6RaMessage(otInstance *aInstance, const uint8_t *data, ssize_t length)
 {
@@ -1158,12 +1188,11 @@ static otError tryProcessIcmp6RaMessage(otInstance *aInstance, const uint8_t *da
 exit:
     return error;
 }
-#endif // OPENTHREAD_CONFIG_BORDER_ROUTING_DHCP6_PD_ENABLE
+#endif // OPENTHREAD_CONFIG_BORDER_ROUTING_ENABLE && OPENTHREAD_CONFIG_BORDER_ROUTING_DHCP6_PD_ENABLE && ...
 
 #ifdef __linux__
 /**
  * Returns whether the address is a required anycast address (RFC2373, 2.6.1).
- *
  */
 static bool isRequiredAnycast(const uint8_t *aAddress, uint8_t aPrefixLength)
 {
@@ -1225,7 +1254,8 @@ static void processTransmit(otInstance *aInstance)
     }
 #endif
 
-#if OPENTHREAD_CONFIG_BORDER_ROUTING_DHCP6_PD_ENABLE
+#if OPENTHREAD_CONFIG_BORDER_ROUTING_ENABLE && OPENTHREAD_CONFIG_BORDER_ROUTING_DHCP6_PD_ENABLE && \
+    !OPENTHREAD_CONFIG_BORDER_ROUTING_DHCP6_PD_CLIENT_ENABLE
     if (tryProcessIcmp6RaMessage(aInstance, reinterpret_cast<uint8_t *>(&packet[offset]), rval) == OT_ERROR_NONE)
     {
         ExitNow();
@@ -1461,17 +1491,17 @@ exit:
 #if defined(__APPLE__) || defined(__NetBSD__) || defined(__FreeBSD__)
 
 #if defined(__FreeBSD__)
-#define ROUNDUP(a) ((a) > 0 ? (1 + (((a)-1) | (sizeof(uint32_t) - 1))) : sizeof(uint32_t))
+#define ROUNDUP(a) ((a) > 0 ? (1 + (((a) - 1) | (sizeof(uint32_t) - 1))) : sizeof(uint32_t))
 #endif
 
 #if defined(__APPLE__)
-#define ROUNDUP(a) ((a) > 0 ? (1 + (((a)-1) | (sizeof(uint32_t) - 1))) : sizeof(uint32_t))
+#define ROUNDUP(a) ((a) > 0 ? (1 + (((a) - 1) | (sizeof(uint32_t) - 1))) : sizeof(uint32_t))
 #define DARWIN_SA_SIZE(sa) ROUNDUP(sa->sa_len)
 #define SA_SIZE(sa) DARWIN_SA_SIZE(sa)
 #endif
 
 #if defined(__NetBSD__)
-#define RT_ROUNDUP2(a, n) ((a) > 0 ? (1 + (((a)-1U) | ((n)-1))) : (n))
+#define RT_ROUNDUP2(a, n) ((a) > 0 ? (1 + (((a) - 1U) | ((n) - 1))) : (n))
 #define RT_ROUNDUP(a) RT_ROUNDUP2((a), sizeof(uint64_t))
 #define SA_SIZE(sa) RT_ROUNDUP(sa->sa_len)
 #endif
@@ -1876,7 +1906,7 @@ static void mldListenerInit(void)
 {
     struct ipv6_mreq mreq6;
 
-    sMLDMonitorFd = SocketWithCloseExec(AF_INET6, SOCK_RAW, IPPROTO_ICMPV6, kSocketNonBlock);
+    sMLDMonitorFd = ot::Posix::SocketWithCloseExec(AF_INET6, SOCK_RAW, IPPROTO_ICMPV6, ot::Posix::kSocketNonBlock);
     VerifyOrDie(sMLDMonitorFd != -1, OT_EXIT_FAILURE);
 
     mreq6.ipv6mr_interface = gNetifIndex;
@@ -2020,7 +2050,7 @@ static void platformConfigureTunDevice(otPlatformConfig *aPlatformConfig)
     struct ifreq ifr;
     const char  *interfaceName;
 
-    sTunFd = open(OPENTHREAD_POSIX_TUN_DEVICE, O_RDWR | O_CLOEXEC | O_NONBLOCK);
+    sTunFd = open(aPlatformConfig->mTunDevice, O_RDWR | O_CLOEXEC | O_NONBLOCK);
     VerifyOrDie(sTunFd >= 0, OT_EXIT_ERROR_ERRNO);
 
     memset(&ifr, 0, sizeof(ifr));
@@ -2069,7 +2099,7 @@ static void platformConfigureTunDevice(otPlatformConfig *aPlatformConfig)
     struct sockaddr_ctl addr;
     struct ctl_info     info;
 
-    sTunFd = SocketWithCloseExec(PF_SYSTEM, SOCK_DGRAM, SYSPROTO_CONTROL, kSocketNonBlock);
+    sTunFd = ot::Posix::SocketWithCloseExec(PF_SYSTEM, SOCK_DGRAM, SYSPROTO_CONTROL, ot::Posix::kSocketNonBlock);
     VerifyOrDie(sTunFd >= 0, OT_EXIT_ERROR_ERRNO);
 
     memset(&info, 0, sizeof(info));
@@ -2121,9 +2151,7 @@ static void platformConfigureTunDevice(otPlatformConfig *aPlatformConfig)
     const char *last_slash;
     const char *path;
 
-    (void)aPlatformConfig;
-
-    path = OPENTHREAD_POSIX_TUN_DEVICE;
+    path = aPlatformConfig->mTunDevice;
 
     sTunFd = open(path, O_RDWR | O_NONBLOCK);
     VerifyOrDie(sTunFd >= 0, OT_EXIT_ERROR_ERRNO);
@@ -2137,7 +2165,7 @@ static void platformConfigureTunDevice(otPlatformConfig *aPlatformConfig)
     err   = ioctl(sTunFd, TUNSIFHEAD, &flags);
     VerifyOrDie(err == 0, OT_EXIT_ERROR_ERRNO);
 
-    last_slash = strrchr(OPENTHREAD_POSIX_TUN_DEVICE, '/');
+    last_slash = strrchr(path, '/');
     VerifyOrDie(last_slash != nullptr, OT_EXIT_ERROR_ERRNO);
     last_slash++;
 
@@ -2148,9 +2176,9 @@ static void platformConfigureTunDevice(otPlatformConfig *aPlatformConfig)
 static void platformConfigureNetLink(void)
 {
 #ifdef __linux__
-    sNetlinkFd = SocketWithCloseExec(AF_NETLINK, SOCK_DGRAM, NETLINK_ROUTE, kSocketNonBlock);
+    sNetlinkFd = ot::Posix::SocketWithCloseExec(AF_NETLINK, SOCK_DGRAM, NETLINK_ROUTE, ot::Posix::kSocketNonBlock);
 #elif defined(__APPLE__) || defined(__NetBSD__) || defined(__FreeBSD__)
-    sNetlinkFd = SocketWithCloseExec(PF_ROUTE, SOCK_RAW, 0, kSocketNonBlock);
+    sNetlinkFd = ot::Posix::SocketWithCloseExec(PF_ROUTE, SOCK_RAW, 0, ot::Posix::kSocketNonBlock);
 #else
 #error "!! Unknown platform !!"
 #endif
@@ -2221,7 +2249,16 @@ void platformNetifInit(otPlatformConfig *aPlatformConfig)
     (void)LogNote;
     (void)LogDebg;
 
-    sIpFd = SocketWithCloseExec(AF_INET6, SOCK_DGRAM, IPPROTO_IP, kSocketNonBlock);
+#if defined(__linux__) || defined(__NetBSD__) ||                                                       \
+    (defined(__APPLE__) && (OPENTHREAD_POSIX_CONFIG_MACOS_TUN_OPTION == OT_POSIX_CONFIG_MACOS_TUN)) || \
+    defined(__FreeBSD__)
+    if (aPlatformConfig->mTunDevice == nullptr)
+    {
+        aPlatformConfig->mTunDevice = OPENTHREAD_POSIX_TUN_DEVICE;
+    }
+#endif
+
+    sIpFd = ot::Posix::SocketWithCloseExec(AF_INET6, SOCK_DGRAM, IPPROTO_IP, ot::Posix::kSocketNonBlock);
     VerifyOrDie(sIpFd >= 0, OT_EXIT_ERROR_ERRNO);
 
     platformConfigureNetLink();
@@ -2320,7 +2357,7 @@ void platformNetifDeinit(void)
     gNetifIndex = 0;
 }
 
-void platformNetifUpdateFdSet(otSysMainloopContext *aContext)
+void platformNetifUpdateFdSet(ot::Posix::Mainloop::Context *aContext)
 {
     VerifyOrExit(gNetifIndex > 0);
 
@@ -2329,72 +2366,56 @@ void platformNetifUpdateFdSet(otSysMainloopContext *aContext)
     assert(sNetlinkFd >= 0);
     assert(sIpFd >= 0);
 
-    FD_SET(sTunFd, &aContext->mReadFdSet);
-    FD_SET(sTunFd, &aContext->mErrorFdSet);
-    FD_SET(sNetlinkFd, &aContext->mReadFdSet);
-    FD_SET(sNetlinkFd, &aContext->mErrorFdSet);
+    ot::Posix::Mainloop::AddToReadFdSet(sTunFd, *aContext);
+    ot::Posix::Mainloop::AddToErrorFdSet(sTunFd, *aContext);
+    ot::Posix::Mainloop::AddToReadFdSet(sNetlinkFd, *aContext);
+    ot::Posix::Mainloop::AddToErrorFdSet(sNetlinkFd, *aContext);
 #if OPENTHREAD_POSIX_USE_MLD_MONITOR
-    FD_SET(sMLDMonitorFd, &aContext->mReadFdSet);
-    FD_SET(sMLDMonitorFd, &aContext->mErrorFdSet);
+    ot::Posix::Mainloop::AddToReadFdSet(sMLDMonitorFd, *aContext);
+    ot::Posix::Mainloop::AddToErrorFdSet(sMLDMonitorFd, *aContext);
 #endif
 
-    if (sTunFd > aContext->mMaxFd)
-    {
-        aContext->mMaxFd = sTunFd;
-    }
-
-    if (sNetlinkFd > aContext->mMaxFd)
-    {
-        aContext->mMaxFd = sNetlinkFd;
-    }
-
-#if OPENTHREAD_POSIX_USE_MLD_MONITOR
-    if (sMLDMonitorFd > aContext->mMaxFd)
-    {
-        aContext->mMaxFd = sMLDMonitorFd;
-    }
-#endif
 exit:
     return;
 }
 
-void platformNetifProcess(const otSysMainloopContext *aContext)
+void platformNetifProcess(const ot::Posix::Mainloop::Context *aContext)
 {
     assert(aContext != nullptr);
     VerifyOrExit(gNetifIndex > 0);
 
-    if (FD_ISSET(sTunFd, &aContext->mErrorFdSet))
+    if (ot::Posix::Mainloop::HasFdErrored(sTunFd, *aContext))
     {
         close(sTunFd);
         DieNow(OT_EXIT_FAILURE);
     }
 
-    if (FD_ISSET(sNetlinkFd, &aContext->mErrorFdSet))
+    if (ot::Posix::Mainloop::HasFdErrored(sNetlinkFd, *aContext))
     {
         close(sNetlinkFd);
         DieNow(OT_EXIT_FAILURE);
     }
 
 #if OPENTHREAD_POSIX_USE_MLD_MONITOR
-    if (FD_ISSET(sMLDMonitorFd, &aContext->mErrorFdSet))
+    if (ot::Posix::Mainloop::HasFdErrored(sMLDMonitorFd, *aContext))
     {
         close(sMLDMonitorFd);
         DieNow(OT_EXIT_FAILURE);
     }
 #endif
 
-    if (FD_ISSET(sTunFd, &aContext->mReadFdSet))
+    if (ot::Posix::Mainloop::IsFdReadable(sTunFd, *aContext))
     {
         processTransmit(gInstance);
     }
 
-    if (FD_ISSET(sNetlinkFd, &aContext->mReadFdSet))
+    if (ot::Posix::Mainloop::IsFdReadable(sNetlinkFd, *aContext))
     {
         processNetlinkEvent(gInstance);
     }
 
 #if OPENTHREAD_POSIX_USE_MLD_MONITOR
-    if (FD_ISSET(sMLDMonitorFd, &aContext->mReadFdSet))
+    if (ot::Posix::Mainloop::IsFdReadable(sMLDMonitorFd, *aContext))
     {
         processMLDEvent(gInstance);
     }

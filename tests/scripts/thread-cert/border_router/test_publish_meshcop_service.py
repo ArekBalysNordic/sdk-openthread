@@ -106,13 +106,28 @@ class PublishMeshCopService(thread_cert.TestCase):
         lifetime = 500_000
         ephemeral_key = br1.activate_ephemeral_key_mode(lifetime)
         self.assertEqual(len(ephemeral_key), 9)
-        self.assertEqual(br1.get_ephemeral_key_state(), 'active')
+        self.assertEqual(br1.get_ephemeral_key_state(), 'Started')
         # check Meshcop-e service
         self.check_meshcop_e_service(host, True)
 
-        # deactivate ePSKc mode
-        br1.deactivate_ephemeral_key_mode()
-        self.assertEqual(br1.get_ephemeral_key_state(), 'inactive')
+        # deactivate ePSKc mode in force
+        br1.deactivate_ephemeral_key_mode(retain_active_session=False)
+        self.assertEqual(br1.get_ephemeral_key_state(), 'Stopped')
+        self.simulator.go(10)
+        # check Meshcop-e service
+        self.check_meshcop_e_service(host, False)
+
+        # activate ePSKc mode by default lifetime
+        lifetime = 0
+        ephemeral_key = br1.activate_ephemeral_key_mode(lifetime)
+        self.assertEqual(len(ephemeral_key), 9)
+        self.assertEqual(br1.get_ephemeral_key_state(), 'Started')
+        # check Meshcop-e service
+        self.check_meshcop_e_service(host, True)
+
+        # deactivate ePSKc mode NOT in force
+        br1.deactivate_ephemeral_key_mode(retain_active_session=True)
+        self.assertEqual(br1.get_ephemeral_key_state(), 'Stopped')
         self.simulator.go(10)
         # check Meshcop-e service
         self.check_meshcop_e_service(host, False)
@@ -133,8 +148,7 @@ class PublishMeshCopService(thread_cert.TestCase):
         br1.stop()
         br1.set_active_dataset(updateExisting=True, network_name='ot-br1-1')
         br1.start()
-        self.simulator.go(config.BORDER_ROUTER_STARTUP_DELAY)
-        self.simulator.go(5)  # Needs to wait extra some time to update meshcop service on state changes.
+        self.simulator.go(config.LEADER_REBOOT_DELAY)
         self.check_meshcop_service(br1, host)
 
         # verify that there are two meshcop services
@@ -142,7 +156,7 @@ class PublishMeshCopService(thread_cert.TestCase):
         br2.start()
         br2.disable_backbone_router()
         br2.enable_br()
-        self.simulator.go(config.BORDER_ROUTER_STARTUP_DELAY)
+        self.simulator.go(config.LEADER_REBOOT_DELAY)
 
         service_instances = host.browse_mdns_services('_meshcop._udp')
         self.assertEqual(len(service_instances), 2)
@@ -150,6 +164,8 @@ class PublishMeshCopService(thread_cert.TestCase):
         br2_service = self.check_meshcop_service(br2, host)
         self.assertNotEqual(br1_service['host'], br2_service['host'])
 
+        br1.disable_border_agent()
+        self.simulator.go(5)
         br1.stop_otbr_service()
         self.simulator.go(5)
         br2.enable_backbone_router()
@@ -157,10 +173,14 @@ class PublishMeshCopService(thread_cert.TestCase):
         self.assertEqual(len(host.browse_mdns_services('_meshcop._udp')), 1)
         br1.start_otbr_service()
         self.simulator.go(10)
+        br1.enable_border_agent()
+        self.simulator.go(5)
         self.assertEqual(len(host.browse_mdns_services('_meshcop._udp')), 2)
         self.check_meshcop_service(br1, host)
         self.check_meshcop_service(br2, host)
 
+        br1.disable_border_agent()
+        self.simulator.go(5)
         br1.factory_reset()
 
         dataset = {
@@ -169,7 +189,7 @@ class PublishMeshCopService(thread_cert.TestCase):
             'channel_mask': config.CHANNEL_MASK,
             'extended_panid': config.EXTENDED_PANID,
             'mesh_local_prefix': config.MESH_LOCAL_PREFIX.split('/')[0],
-            'network_key': binascii.hexlify(config.DEFAULT_NETWORK_KEY).decode(),
+            'network_key': config.DEFAULT_NETWORK_KEY,
             'network_name': 'ot-br-1-3',
             'panid': config.PANID,
             'pskc': config.PSKC,
@@ -177,9 +197,16 @@ class PublishMeshCopService(thread_cert.TestCase):
         }
 
         br1.set_active_dataset(**dataset)
-        self.simulator.go(10)
+        self.simulator.go(config.LEADER_STARTUP_DELAY)
 
-        self.assertEqual(len(host.browse_mdns_services('_meshcop._udp')), 2)
+        # Since `br1` is factory reset, the Border Agent and other
+        # functions are not given the chance to stop properly and
+        # remove previously registered mDNS services. This can result
+        # in stale entries remaining in the mDNS cache, leading to
+        # more services appearing in `browse` results. Therefore, we
+        # use `assertGreaterEqual()` here.
+
+        self.assertGreaterEqual(len(host.browse_mdns_services('_meshcop._udp')), 2)
         self.check_meshcop_service(br1, host)
         self.check_meshcop_service(br2, host)
 
@@ -195,7 +222,10 @@ class PublishMeshCopService(thread_cert.TestCase):
         sb_data = service_data['txt']['sb'].encode('raw_unicode_escape')
         state_bitmap = int.from_bytes(sb_data, byteorder='big')
         logging.info(bin(state_bitmap))
-        self.assertEqual((state_bitmap & 7), 1)  # connection mode = PskC
+        if br.get_ba_state() == 'Active':
+            self.assertEqual((state_bitmap & 7), 1)  # connection mode = PskC
+        else:
+            self.assertEqual((state_bitmap & 7), 0)  # connection mode = Disabled
         sb_thread_interface_status = state_bitmap >> 3 & 3
         sb_thread_role = state_bitmap >> 9 & 3
         device_role = br.get_state()

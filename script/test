@@ -68,6 +68,9 @@ readonly VERBOSE
 BORDER_ROUTING="${BORDER_ROUTING:-1}"
 readonly BORDER_ROUTING
 
+DISCOVERY_PROXY="${DISCOVERY_PROXY:-1}"
+readonly DISCOVERY_PROXY
+
 NAT64="${NAT64:-0}"
 readonly NAT64
 
@@ -89,6 +92,9 @@ readonly TREL
 LOCAL_OTBR_DIR=${LOCAL_OTBR_DIR:-""}
 readonly LOCAL_OTBR_DIR
 
+: "${OT_VT_USE_UNIX_SOCKET:=0}"
+export OT_VT_USE_UNIX_SOCKET
+
 build_simulation()
 {
     local version="$1"
@@ -109,6 +115,7 @@ build_simulation()
         "-DOT_SERVICE=ON"
         "-DOT_SRP_CLIENT=ON"
         "-DOT_SRP_SERVER=ON"
+        "-DOT_SRP_SERVER_FAST_START_MODE=ON"
         "-DOT_UPTIME=ON"
         "-DOT_THREAD_VERSION=${version}"
     )
@@ -131,6 +138,9 @@ build_simulation()
         options+=("-DOT_LINK_METRICS_INITIATOR=ON")
         options+=("-DOT_LINK_METRICS_SUBJECT=ON")
         options+=("-DOT_LINK_METRICS_MANAGER=ON")
+        options+=("-DOT_P2P=ON")
+        options+=("-DOT_WAKEUP_COORDINATOR=ON")
+        options+=("-DOT_WAKEUP_END_DEVICE=ON")
     fi
 
     if [[ ${OT_NODE_TYPE} == cli* ]]; then
@@ -154,20 +164,11 @@ build_simulation()
 
     OT_CMAKE_BUILD_DIR="${OT_BUILDDIR}/openthread-simulation-${version}" "${OT_SRCDIR}"/script/cmake-build simulation "${options[@]}"
 
-    if [[ ${VIRTUAL_TIME} == 1 ]] && [[ ${OT_NODE_TYPE} == rcp* ]]; then
-        OT_CMAKE_NINJA_TARGET=ot-rcp OT_CMAKE_BUILD_DIR="${OT_BUILDDIR}/openthread-simulation-${version}" "${OT_SRCDIR}"/script/cmake-build simulation "${options[@]}" "-DOT_SIMULATION_VIRTUAL_TIME_UART=ON"
-    fi
-
     if [[ ${version} != "1.1" && ${INTER_OP_BBR} == 1 ]]; then
 
         options+=("-DOT_BACKBONE_ROUTER=ON")
 
         OT_CMAKE_BUILD_DIR="${OT_BUILDDIR}/openthread-simulation-${version}-bbr" "${OT_SRCDIR}"/script/cmake-build simulation "${options[@]}"
-
-        if [[ ${VIRTUAL_TIME} == 1 ]] && [[ ${OT_NODE_TYPE} == rcp* ]]; then
-            OT_CMAKE_NINJA_TARGET=ot-rcp OT_CMAKE_BUILD_DIR="${OT_BUILDDIR}/openthread-simulation-${version}-bbr" "${OT_SRCDIR}"/script/cmake-build simulation "${options[@]}" "-DOT_SIMULATION_VIRTUAL_TIME_UART=ON"
-        fi
-
     fi
 }
 
@@ -188,6 +189,9 @@ build_posix()
         options+=("-DOT_LINK_METRICS_INITIATOR=ON")
         options+=("-DOT_LINK_METRICS_SUBJECT=ON")
         options+=("-DOT_LINK_METRICS_MANAGER=ON")
+        options+=("-DOT_P2P=ON")
+        options+=("-DOT_WAKEUP_COORDINATOR=ON")
+        options+=("-DOT_WAKEUP_END_DEVICE=ON")
     fi
 
     if [[ ${FULL_LOGS} == 1 ]]; then
@@ -276,7 +280,7 @@ do_cert()
         rcp | rcp-cli | cli)
             export NODE_TYPE=sim
             ;;
-        rcp-ncp | ncp)
+        ncp)
             export NODE_TYPE=ncp-sim
             ;;
     esac
@@ -349,11 +353,12 @@ do_build_otbr_docker()
         "-DOT_SRP_CLIENT=ON"
         "-DOT_FULL_LOGS=ON"
         "-DOT_UPTIME=ON"
-        "-DOTBR_DNS_UPSTREAM_QUERY=ON"
         "-DOTBR_DUA_ROUTING=ON"
+        "-DOTBR_DHCP6_PD=ON"
     )
     local args=(
         "BORDER_ROUTING=${BORDER_ROUTING}"
+        "DISCOVERY_PROXY=${DISCOVERY_PROXY}"
         "INFRA_IF_NAME=eth0"
         "BACKBONE_ROUTER=1"
         "REFERENCE_DEVICE=1"
@@ -410,7 +415,7 @@ do_build_otbr_docker()
             third_party/openthread/repo
         rm -rf .git
 
-        docker build -t "${otbr_docker_image}" -f etc/docker/Dockerfile . \
+        docker build -t "${otbr_docker_image}" -f etc/docker/test/Dockerfile . \
             "${docker_build_args[@]}" \
             --build-arg OTBR_OPTIONS="${otbr_options[*]}"
     )
@@ -472,10 +477,14 @@ do_expect()
             test_patterns=(-name 'posix-*.exp' -o -name 'cli-*.exp')
             if [[ ${THREAD_VERSION} != "1.1" ]]; then
                 test_patterns+=(-o -name 'v1_2-*.exp')
+                test_patterns+=(-o -name 'v1_5-*.exp')
             fi
         fi
     else
         test_patterns=(-name 'cli-*.exp' -o -name 'simulation-*.exp' -o -name 'cli_non_rcp-*.exp')
+        if [[ ${THREAD_VERSION} != "1.1" ]]; then
+            test_patterns+=(-o -name 'v1_5-*.exp')
+        fi
     fi
 
     if [[ $# != 0 ]]; then
@@ -497,7 +506,6 @@ print_usage()
 ENVIRONMENTS:
     OT_NODE_TYPE    'cli' for CLI simulation, 'ncp' for NCP simulation.
                     'rcp' or 'rcp-cli' for CLI on POSIX platform.
-                    'rcp-ncp' for NCP on POSIX platform.
                     The default is 'cli'.
     OT_NATIVE_IP    1 to enable platform UDP and netif on POSIX platform. The default is 0.
     OT_BUILDDIR     The output directory for cmake build. By default the directory is './build'. For example,
@@ -703,12 +711,10 @@ main()
             cert)
                 shift
                 do_cert "$@"
-                shift $#
                 ;;
             cert_suite)
                 shift
                 do_cert_suite "$@"
-                shift $#
                 ;;
             get_thread_wireshark)
                 do_get_thread_wireshark

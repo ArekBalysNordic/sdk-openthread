@@ -31,8 +31,8 @@
  *   This file contains definitions for a TCP CLI tool.
  */
 
-#ifndef CLI_TCP_EXAMPLE_HPP_
-#define CLI_TCP_EXAMPLE_HPP_
+#ifndef OT_CLI_CLI_TCP_HPP_
+#define OT_CLI_CLI_TCP_HPP_
 
 #include "openthread-core-config.h"
 
@@ -57,7 +57,6 @@ namespace Cli {
 
 /**
  * Implements a CLI-based TCP example.
- *
  */
 class TcpExample : private Utils
 {
@@ -67,7 +66,6 @@ public:
      *
      * @param[in]  aInstance            The OpenThread Instance.
      * @param[in]  aOutputImplementer   An `OutputImplementer`.
-     *
      */
     TcpExample(otInstance *aInstance, OutputImplementer &aOutputImplementer);
 
@@ -81,7 +79,6 @@ public:
      * @retval OT_ERROR_INVALID_COMMAND   Invalid or unknown CLI command.
      * @retval OT_ERROR_INVALID_ARGS      Invalid arguments.
      * @retval ...                        Error during execution of the CLI command.
-     *
      */
     otError Process(Arg aArgs[]);
 
@@ -225,4 +222,4 @@ private:
 } // namespace Cli
 } // namespace ot
 
-#endif // CLI_TCP_EXAMPLE_HPP_
+#endif // OT_CLI_CLI_TCP_HPP_

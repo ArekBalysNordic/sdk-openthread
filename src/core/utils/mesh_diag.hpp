@@ -31,8 +31,8 @@
  *   This file includes definitions for Mesh Diagnostic module.
  */
 
-#ifndef MESH_DIAG_HPP_
-#define MESH_DIAG_HPP_
+#ifndef OT_CORE_UTILS_MESH_DIAG_HPP_
+#define OT_CORE_UTILS_MESH_DIAG_HPP_
 
 #include "openthread-core-config.h"
 
@@ -44,7 +44,6 @@
 
 #include <openthread/mesh_diag.h>
 
-#include "coap/coap.hpp"
 #include "common/callback.hpp"
 #include "common/locator.hpp"
 #include "common/message.hpp"
@@ -52,6 +51,7 @@
 #include "net/ip6_address.hpp"
 #include "thread/network_diagnostic.hpp"
 #include "thread/network_diagnostic_tlvs.hpp"
+#include "thread/tmf.hpp"
 
 struct otMeshDiagIp6AddrIterator
 {
@@ -66,7 +66,6 @@ namespace Utils {
 
 /**
  * Implements the Mesh Diagnostics.
- *
  */
 class MeshDiag : public InstanceLocator
 {
@@ -83,7 +82,6 @@ public:
 
     /**
      * Represents an iterator to go over list of IPv6 addresses of a router or an MTD child.
-     *
      */
     class Ip6AddrIterator : public otMeshDiagIp6AddrIterator
     {
@@ -97,7 +95,6 @@ public:
          *
          * @retval kErrorNone      Successfully retrieved the next address. @p aAddress is updated.
          * @retval kErrorNotFound  No more address. Reached the end of the list.
-         *
          */
         Error GetNextAddress(Ip6::Address &aAddress);
 
@@ -110,7 +107,6 @@ public:
 
     /**
      * Represents information about a router in Thread mesh.
-     *
      */
     class RouterInfo : public otMeshDiagRouterInfo, public Clearable<RouterInfo>
     {
@@ -122,7 +118,6 @@ public:
 
     /**
      * Represents information about a child in Thread mesh.
-     *
      */
     class ChildInfo : public otMeshDiagChildInfo, public Clearable<ChildInfo>
     {
@@ -130,7 +125,6 @@ public:
 
     /**
      * Represents an iterator to go over list of IPv6 addresses of a router.
-     *
      */
     class ChildIterator : public otMeshDiagChildIterator
     {
@@ -144,7 +138,6 @@ public:
          *
          * @retval kErrorNone      Successfully retrieved the next child info. @p aChildInfo is updated.
          * @retval kErrorNotFound  No more child entry. Reached the end of the list.
-         *
          */
         Error GetNextChildInfo(ChildInfo &aChildInfo);
 
@@ -160,9 +153,26 @@ public:
      * Initializes the `MeshDiag` instance.
      *
      * @param[in] aInstance   The OpenThread instance.
-     *
      */
     explicit MeshDiag(Instance &aInstance);
+
+    /**
+     * Sets the response timeout value to use for any future queries.
+     *
+     * Changing the response timeout does not impact any ongoing query.
+     *
+     * The provided @p aTimeout value will be clamped to stay between 50 milliseconds and 10 minutes.
+     *
+     * @param[in] aTimeout   The timeout interval in milliseconds.
+     */
+    void SetResponseTimeout(uint32_t aTimeout);
+
+    /**
+     * Gets the response timeout value.
+     *
+     * @returns The response timeout interval in milliseconds.
+     */
+    uint32_t GetResponseTimeout(void) const { return mResponseTimeout; }
 
     /**
      * Starts network topology discovery.
@@ -175,7 +185,6 @@ public:
      * @retval kErrorBusy          A previous discovery or query request is still ongoing.
      * @retval kErrorInvalidState  Device is not attached.
      * @retval kErrorNoBufs        Could not allocate buffer to send discovery messages.
-     *
      */
     Error DiscoverTopology(const DiscoverConfig &aConfig, DiscoverCallback aCallback, void *aContext);
 
@@ -191,7 +200,6 @@ public:
      * @retval kErrorInvalidArgs   The @p aRloc16 is not a valid router RLOC16.
      * @retval kErrorInvalidState  Device is not attached.
      * @retval kErrorNoBufs        Could not allocate buffer to send query messages.
-     *
      */
     Error QueryChildTable(uint16_t aRloc16, QueryChildTableCallback aCallback, void *aContext);
 
@@ -207,7 +215,6 @@ public:
      * @retval kErrorInvalidArgs   The @p aRloc16 is not a valid  RLOC16.
      * @retval kErrorInvalidState  Device is not attached.
      * @retval kErrorNoBufs        Could not allocate buffer to send query messages.
-     *
      */
     Error QueryChildrenIp6Addrs(uint16_t aRloc16, ChildIp6AddrsCallback aCallback, void *aContext);
 
@@ -223,7 +230,6 @@ public:
      * @retval kErrorInvalidArgs   The @p aRloc16 is not a valid router RLOC16.
      * @retval kErrorInvalidState  Device is not attached.
      * @retval kErrorNoBufs        Could not allocate buffer to send query messages.
-     *
      */
     Error QueryRouterNeighborTable(uint16_t aRloc16, RouterNeighborTableCallback aCallback, void *aContext);
 
@@ -232,14 +238,15 @@ public:
      *
      * When ongoing discovery is cancelled, the callback from `DiscoverTopology()` or  `QueryChildTable()` will not be
      * called anymore.
-     *
      */
     void Cancel(void);
 
 private:
     typedef ot::NetworkDiagnostic::Tlv Tlv;
 
-    static constexpr uint32_t kResponseTimeout = OPENTHREAD_CONFIG_MESH_DIAG_RESPONSE_TIMEOUT;
+    static constexpr uint32_t kResponseTimeout    = OPENTHREAD_CONFIG_MESH_DIAG_RESPONSE_TIMEOUT;
+    static constexpr uint32_t kMinResponseTimeout = 50;
+    static constexpr uint32_t kMaxResponseTimeout = 10 * Time::kOneMinuteInMsec;
 
     enum State : uint8_t
     {
@@ -299,18 +306,14 @@ private:
     bool  ProcessChildrenIp6AddrsAnswer(Coap::Message &aMessage, const Ip6::MessageInfo &aMessageInfo);
     bool  ProcessRouterNeighborTableAnswer(Coap::Message &aMessage, const Ip6::MessageInfo &aMessageInfo);
 
-    void HandleDiagGetResponse(Coap::Message *aMessage, const Ip6::MessageInfo *aMessageInfo, Error aResult);
-
-    static void HandleDiagGetResponse(void                *aContext,
-                                      otMessage           *aMessage,
-                                      const otMessageInfo *aMessageInfo,
-                                      Error                aResult);
+    DeclareTmfResponseHandlerIn(MeshDiag, HandleDiagGetResponse);
 
     using TimeoutTimer = TimerMilliIn<MeshDiag, &MeshDiag::HandleTimer>;
 
     State        mState;
     uint16_t     mExpectedQueryId;
     uint16_t     mExpectedAnswerIndex;
+    uint32_t     mResponseTimeout;
     TimeoutTimer mTimer;
 
     union
@@ -333,4 +336,4 @@ DefineCoreType(otMeshDiagChildIterator, Utils::MeshDiag::ChildIterator);
 
 #endif // OPENTHREAD_CONFIG_MESH_DIAG_ENABLE && OPENTHREAD_FTD
 
-#endif // MESH_DIAG_HPP_
+#endif // OT_CORE_UTILS_MESH_DIAG_HPP_

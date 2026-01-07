@@ -35,15 +35,7 @@
 
 #if OPENTHREAD_CONFIG_MLR_ENABLE || (OPENTHREAD_FTD && OPENTHREAD_CONFIG_TMF_PROXY_MLR_ENABLE)
 
-#include "common/as_core_type.hpp"
-#include "common/code_utils.hpp"
-#include "common/locator_getters.hpp"
-#include "common/log.hpp"
 #include "instance/instance.hpp"
-#include "net/ip6_address.hpp"
-#include "thread/thread_netif.hpp"
-#include "thread/uri_paths.hpp"
-#include "utils/slaac_address.hpp"
 
 namespace ot {
 
@@ -69,7 +61,7 @@ void MlrManager::HandleNotifierEvents(Events aEvents)
     }
 #endif
 
-    if (aEvents.Contains(kEventThreadRoleChanged) && Get<Mle::MleRouter>().IsChild())
+    if (aEvents.Contains(kEventThreadRoleChanged) && Get<Mle::Mle>().IsChild())
     {
         // Reregistration after re-attach
         UpdateReregistrationDelay(true);
@@ -219,13 +211,13 @@ void MlrManager::UpdateTimeTickerRegistration(void)
 
 void MlrManager::SendMlr(void)
 {
-    Error           error;
-    Mle::MleRouter &mle = Get<Mle::MleRouter>();
-    AddressArray    addresses;
+    Error        error;
+    AddressArray addresses;
 
     VerifyOrExit(!mMlrPending, error = kErrorBusy);
-    VerifyOrExit(mle.IsAttached(), error = kErrorInvalidState);
-    VerifyOrExit(mle.IsFullThreadDevice() || mle.GetParent().IsThreadVersion1p1(), error = kErrorInvalidState);
+    VerifyOrExit(Get<Mle::Mle>().IsAttached(), error = kErrorInvalidState);
+    VerifyOrExit(Get<Mle::Mle>().IsFullThreadDevice() || Get<Mle::Mle>().GetParent().IsThreadVersion1p1(),
+                 error = kErrorInvalidState);
     VerifyOrExit(Get<BackboneRouter::Leader>().HasPrimary(), error = kErrorInvalidState);
 
 #if OPENTHREAD_CONFIG_MLR_ENABLE
@@ -343,26 +335,15 @@ exit:
     return error;
 }
 
-void MlrManager::HandleRegisterResponse(void                *aContext,
-                                        otMessage           *aMessage,
-                                        const otMessageInfo *aMessageInfo,
-                                        Error                aResult)
+void MlrManager::HandleRegisterResponse(Coap::Message *aMessage, Error aResult)
 {
-    static_cast<MlrManager *>(aContext)->HandleRegisterResponse(AsCoapMessagePtr(aMessage), AsCoreTypePtr(aMessageInfo),
-                                                                aResult);
-}
-
-void MlrManager::HandleRegisterResponse(otMessage *aMessage, const otMessageInfo *aMessageInfo, Error aResult)
-{
-    OT_UNUSED_VARIABLE(aMessageInfo);
-
     uint8_t      status;
     Error        error;
     AddressArray failedAddresses;
 
     mRegisterPending = false;
 
-    error = ParseMlrResponse(aResult, AsCoapMessagePtr(aMessage), status, failedAddresses);
+    error = ParseMlrResponse(aResult, aMessage, status, failedAddresses);
 
     mRegisterCallback.InvokeAndClearIfSet(error, status, failedAddresses.GetArrayBuffer(), failedAddresses.GetLength());
 }
@@ -378,7 +359,6 @@ Error MlrManager::SendMlrMessage(const Ip6::Address   *aAddresses,
     OT_UNUSED_VARIABLE(aTimeout);
 
     Error            error   = kErrorNone;
-    Mle::MleRouter  &mle     = Get<Mle::MleRouter>();
     Coap::Message   *message = nullptr;
     Tmf::MessageInfo messageInfo(GetInstance());
     Ip6AddressesTlv  addressesTlv;
@@ -408,16 +388,16 @@ Error MlrManager::SendMlrMessage(const Ip6::Address   *aAddresses,
     OT_ASSERT(aTimeout == nullptr);
 #endif
 
-    if (!mle.IsFullThreadDevice() && mle.GetParent().IsThreadVersion1p1())
+    if (!Get<Mle::Mle>().IsFullThreadDevice() && Get<Mle::Mle>().GetParent().IsThreadVersion1p1())
     {
         uint8_t pbbrServiceId;
 
         SuccessOrExit(error = Get<BackboneRouter::Leader>().GetServiceId(pbbrServiceId));
-        mle.GetServiceAloc(pbbrServiceId, messageInfo.GetPeerAddr());
+        Get<Mle::Mle>().GetServiceAloc(pbbrServiceId, messageInfo.GetPeerAddr());
     }
     else
     {
-        messageInfo.GetPeerAddr().SetToRoutingLocator(mle.GetMeshLocalPrefix(),
+        messageInfo.GetPeerAddr().SetToRoutingLocator(Get<Mle::Mle>().GetMeshLocalPrefix(),
                                                       Get<BackboneRouter::Leader>().GetServer16());
     }
 
@@ -436,7 +416,7 @@ exit:
 void MlrManager::HandleMlrResponse(void                *aContext,
                                    otMessage           *aMessage,
                                    const otMessageInfo *aMessageInfo,
-                                   Error                aResult)
+                                   otError              aResult)
 {
     static_cast<MlrManager *>(aContext)->HandleMlrResponse(AsCoapMessagePtr(aMessage), AsCoreTypePtr(aMessageInfo),
                                                            aResult);
@@ -452,9 +432,9 @@ void MlrManager::HandleMlrResponse(Coap::Message *aMessage, const Ip6::MessageIn
 
     error = ParseMlrResponse(aResult, aMessage, status, failedAddresses);
 
-    FinishMlr(error == kErrorNone && status == ThreadStatusTlv::kMlrSuccess, failedAddresses);
+    FinishMlr(error == kErrorNone && status == kMlrSuccess, failedAddresses);
 
-    if (error == kErrorNone && status == ThreadStatusTlv::kMlrSuccess)
+    if (error == kErrorNone && status == kMlrSuccess)
     {
         // keep sending until all multicast addresses are registered.
         ScheduleSend(0);
@@ -485,7 +465,7 @@ Error MlrManager::ParseMlrResponse(Error          aResult,
     Error       error;
     OffsetRange offsetRange;
 
-    aStatus = ThreadStatusTlv::kMlrGeneralFailure;
+    aStatus = kMlrGeneralFailure;
 
     VerifyOrExit(aResult == kErrorNone && aMessage != nullptr, error = kErrorParse);
     VerifyOrExit(aMessage->GetCode() == Coap::kCodeChanged, error = kErrorParse);
@@ -505,7 +485,7 @@ Error MlrManager::ParseMlrResponse(Error          aResult,
         }
     }
 
-    VerifyOrExit(aFailedAddresses.IsEmpty() || aStatus != ThreadStatusTlv::kMlrSuccess, error = kErrorParse);
+    VerifyOrExit(aFailedAddresses.IsEmpty() || aStatus != kMlrSuccess, error = kErrorParse);
 
 exit:
     LogMlrResponse(aResult, error, aStatus, aFailedAddresses);
@@ -615,9 +595,7 @@ void MlrManager::Reregister(void)
 
 void MlrManager::UpdateReregistrationDelay(bool aRereg)
 {
-    Mle::MleRouter &mle = Get<Mle::MleRouter>();
-
-    bool needSendMlr = (mle.IsFullThreadDevice() || mle.GetParent().IsThreadVersion1p1()) &&
+    bool needSendMlr = (Get<Mle::Mle>().IsFullThreadDevice() || Get<Mle::Mle>().GetParent().IsThreadVersion1p1()) &&
                        Get<BackboneRouter::Leader>().HasPrimary();
 
     if (!needSendMlr)
@@ -705,7 +683,7 @@ void MlrManager::LogMlrResponse(Error aResult, Error aError, uint8_t aStatus, co
     OT_UNUSED_VARIABLE(aFailedAddresses);
 
 #if OT_SHOULD_LOG_AT(OT_LOG_LEVEL_WARN)
-    if (aResult == kErrorNone && aError == kErrorNone && aStatus == ThreadStatusTlv::kMlrSuccess)
+    if (aResult == kErrorNone && aError == kErrorNone && aStatus == kMlrSuccess)
     {
         LogInfo("Receive MLR.rsp OK");
     }
@@ -726,6 +704,8 @@ void MlrManager::CheckInvariants(void) const
 {
 #if OPENTHREAD_EXAMPLES_SIMULATION && OPENTHREAD_CONFIG_ASSERT_ENABLE
     uint16_t registeringNum = 0;
+
+    OT_UNUSED_VARIABLE(registeringNum);
 
     OT_ASSERT(!mMlrPending || mSendDelay == 0);
 

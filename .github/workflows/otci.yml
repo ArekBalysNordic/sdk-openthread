@@ -47,25 +47,32 @@ jobs:
 
   cli-sim:
     name: cli-sim VIRTUAL_TIME=${{ matrix.virtual_time }}
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         virtual_time: [0, 1]
     env:
       VIRTUAL_TIME: ${{ matrix.virtual_time }}
+      OT_VT_USE_UNIX_SOCKET: ${{ matrix.virtual_time }}
       REAL_DEVICE: 0
     steps:
     - name: Harden Runner
-      uses: step-security/harden-runner@5c7944e73c4c2a096b17a9cb74d65b6c2bbafbde # v2.9.1
+      uses: step-security/harden-runner@f4a75cfd619ee5ce8d5b864b0d183aff3c69b55a # v2.13.1
       with:
         egress-policy: audit # TODO: change to 'egress-policy: block' after couple of runs
 
-    - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      with:
+        submodules: recursive
+    - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+      with:
+        python-version: '3.12'
+        cache: pip
     - name: Bootstrap
       run: |
-        sudo rm /etc/apt/sources.list.d/* && sudo apt-get update
-        sudo apt-get --no-install-recommends install -y g++-multilib ninja-build python3-setuptools python3-wheel
+        sudo apt-get update
+        sudo apt-get --no-install-recommends install -y ninja-build
         python3 -m pip install -r tests/scripts/thread-cert/requirements.txt
         python3 -m pip install pytype adb-shell
     - name: Style check

@@ -33,12 +33,7 @@
 
 #include "netif.hpp"
 
-#include "common/as_core_type.hpp"
-#include "common/debug.hpp"
-#include "common/locator_getters.hpp"
-#include "common/message.hpp"
 #include "instance/instance.hpp"
-#include "net/ip6.hpp"
 
 namespace ot {
 namespace Ip6 {
@@ -52,7 +47,6 @@ namespace Ip6 {
  * All or a portion of the chain is appended to the end of `mMulticastAddresses` linked-list. If the interface is
  * subscribed to all-routers multicast addresses (using `SubscribeAllRoutersMulticast()`) then all the five entries
  * are appended. Otherwise only the last three are appended.
- *
  */
 
 // "ff03::fc"
@@ -241,7 +235,7 @@ void Netif::SignalMulticastAddressChange(AddressEvent aEvent, const MulticastAdd
     Get<Notifier>().Signal(aEvent == kAddressAdded ? kEventIp6MulticastSubscribed : kEventIp6MulticastUnsubscribed);
 
 #if OPENTHREAD_CONFIG_HISTORY_TRACKER_ENABLE
-    Get<Utils::HistoryTracker>().RecordAddressEvent(aEvent, aAddress, aOrigin);
+    Get<HistoryTracker::Local>().RecordAddressEvent(aEvent, aAddress, aOrigin);
 #endif
 
     if ((aOrigin == kOriginThread) && mAddressCallback.IsSet())
@@ -333,7 +327,7 @@ Error Netif::UnsubscribeExternalMulticast(const Address &aAddress)
     MulticastAddress *entry;
     MulticastAddress *prev;
 
-    entry = mMulticastAddresses.FindMatching(aAddress, prev);
+    entry = mMulticastAddresses.FindMatchingWithPrev(prev, aAddress);
     VerifyOrExit(entry != nullptr, error = kErrorNotFound);
 
     VerifyOrExit(IsMulticastAddressExternal(*entry), error = kErrorRejected);
@@ -420,7 +414,7 @@ void Netif::SignalUnicastAddressChange(AddressEvent aEvent, const UnicastAddress
 #endif
 
 #if OPENTHREAD_CONFIG_HISTORY_TRACKER_ENABLE
-    Get<Utils::HistoryTracker>().RecordAddressEvent(aEvent, aAddress);
+    Get<HistoryTracker::Local>().RecordAddressEvent(aEvent, aAddress);
 #endif
 
     if (!IsUnicastAddressExternal(aAddress) && mAddressCallback.IsSet())
@@ -480,7 +474,7 @@ Error Netif::RemoveExternalUnicastAddress(const Address &aAddress)
     UnicastAddress *entry;
     UnicastAddress *prev;
 
-    entry = mUnicastAddresses.FindMatching(aAddress, prev);
+    entry = mUnicastAddresses.FindMatchingWithPrev(prev, aAddress);
     VerifyOrExit(entry != nullptr, error = kErrorNotFound);
 
     VerifyOrExit(IsUnicastAddressExternal(*entry), error = kErrorRejected);

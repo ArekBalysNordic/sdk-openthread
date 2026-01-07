@@ -31,8 +31,8 @@
  *   This file contains definitions for the CLI interpreter.
  */
 
-#ifndef CLI_HPP_
-#define CLI_HPP_
+#ifndef OT_CLI_CLI_HPP_
+#define OT_CLI_CLI_HPP_
 
 #include "openthread-core-config.h"
 
@@ -48,7 +48,6 @@
 #include <openthread/ip6.h>
 #include <openthread/link.h>
 #include <openthread/logging.h>
-#include <openthread/mesh_diag.h>
 #include <openthread/netdata.h>
 #include <openthread/ping_sender.h>
 #include <openthread/sntp.h>
@@ -57,6 +56,7 @@
 #include <openthread/thread_ftd.h>
 #include <openthread/udp.h>
 
+#include "cli/cli_ba.hpp"
 #include "cli/cli_bbr.hpp"
 #include "cli/cli_br.hpp"
 #include "cli/cli_coap.hpp"
@@ -70,6 +70,7 @@
 #include "cli/cli_link_metrics.hpp"
 #include "cli/cli_mac_filter.hpp"
 #include "cli/cli_mdns.hpp"
+#include "cli/cli_mesh_diag.hpp"
 #include "cli/cli_network_data.hpp"
 #include "cli/cli_ping.hpp"
 #include "cli/cli_srp_client.hpp"
@@ -92,7 +93,6 @@ namespace ot {
  *
  * @brief
  *   This namespace contains definitions for the CLI interpreter.
- *
  */
 namespace Cli {
 
@@ -103,18 +103,20 @@ extern "C" void otCliOutputFormat(const char *aFmt, ...);
 
 /**
  * Implements the CLI interpreter.
- *
  */
 class Interpreter : public OutputImplementer, public Utils
 {
 #if OPENTHREAD_FTD || OPENTHREAD_MTD
+    friend class Ba;
     friend class Br;
     friend class Bbr;
     friend class Commissioner;
     friend class Dns;
     friend class Joiner;
+    friend class History;
     friend class LinkMetrics;
     friend class Mdns;
+    friend class MeshDiag;
     friend class NetworkData;
     friend class PingSender;
     friend class SrpClient;
@@ -139,7 +141,6 @@ public:
      * Returns a reference to the interpreter object.
      *
      * @returns A reference to the interpreter object.
-     *
      */
     static Interpreter &GetInterpreter(void)
     {
@@ -154,7 +155,6 @@ public:
      * @param[in]  aInstance  The OpenThread instance structure.
      * @param[in]  aCallback  A pointer to a callback method.
      * @param[in]  aContext   A pointer to a user context.
-     *
      */
     static void Initialize(otInstance *aInstance, otCliOutputCallback aCallback, void *aContext);
 
@@ -162,17 +162,15 @@ public:
      * Returns whether the interpreter is initialized.
      *
      * @returns  Whether the interpreter is initialized.
-     *
      */
     static bool IsInitialized(void) { return sInterpreter != nullptr; }
 
     /**
      * Interprets a CLI command.
      *
-     * @param[in]  aBuf        A pointer to a string.
-     *
+     * @param[in]  aLine        A pointer to a command string.
      */
-    void ProcessLine(char *aBuf);
+    void ProcessLine(char *aLine);
 
     /**
      * Adds commands to the user command table.
@@ -237,27 +235,6 @@ private:
                                    uint16_t            aRloc16);
     void        HandleLocateResult(otError aError, const otIp6Address *aMeshLocalAddress, uint16_t aRloc16);
 #endif
-#if OPENTHREAD_CONFIG_MESH_DIAG_ENABLE && OPENTHREAD_FTD
-    static void HandleMeshDiagDiscoverDone(otError aError, otMeshDiagRouterInfo *aRouterInfo, void *aContext);
-    void        HandleMeshDiagDiscoverDone(otError aError, otMeshDiagRouterInfo *aRouterInfo);
-    static void HandleMeshDiagQueryChildTableResult(otError                     aError,
-                                                    const otMeshDiagChildEntry *aChildEntry,
-                                                    void                       *aContext);
-    void        HandleMeshDiagQueryChildTableResult(otError aError, const otMeshDiagChildEntry *aChildEntry);
-    static void HandleMeshDiagQueryChildIp6Addrs(otError                    aError,
-                                                 uint16_t                   aChildRloc16,
-                                                 otMeshDiagIp6AddrIterator *aIp6AddrIterator,
-                                                 void                      *aContext);
-    void        HandleMeshDiagQueryChildIp6Addrs(otError                    aError,
-                                                 uint16_t                   aChildRloc16,
-                                                 otMeshDiagIp6AddrIterator *aIp6AddrIterator);
-    static void HandleMeshDiagQueryRouterNeighborTableResult(otError                              aError,
-                                                             const otMeshDiagRouterNeighborEntry *aNeighborEntry,
-                                                             void                                *aContext);
-    void        HandleMeshDiagQueryRouterNeighborTableResult(otError                              aError,
-                                                             const otMeshDiagRouterNeighborEntry *aNeighborEntry);
-
-#endif
 #if OPENTHREAD_FTD && OPENTHREAD_CONFIG_TMF_PROXY_MLR_ENABLE && OPENTHREAD_CONFIG_COMMISSIONER_ENABLE
     static void HandleMlrRegResult(void               *aContext,
                                    otError             aError,
@@ -288,7 +265,9 @@ private:
     void OutputConnectivity(uint8_t aIndentSize, const otNetworkDiagConnectivity &aConnectivity);
     void OutputRoute(uint8_t aIndentSize, const otNetworkDiagRoute &aRoute);
     void OutputRouteData(uint8_t aIndentSize, const otNetworkDiagRouteData &aRouteData);
+    void OutputEnhRoute(uint8_t aIndentSize, const otNetworkDiagEnhRoute &aEnhRoute);
     void OutputLeaderData(uint8_t aIndentSize, const otLeaderData &aLeaderData);
+    void OutputIp6AddrList(uint8_t aIndentSize, const otNetworkDiagIp6AddrList &aIp6Addrs);
     void OutputNetworkDiagMacCounters(uint8_t aIndentSize, const otNetworkDiagMacCounters &aMacCounters);
     void OutputNetworkDiagMleCounters(uint8_t aIndentSize, const otNetworkDiagMleCounters &aMleCounters);
     void OutputChildTableEntry(uint8_t aIndentSize, const otNetworkDiagChildEntry &aChildEntry);
@@ -315,14 +294,6 @@ private:
     void HandleSntpResponse(uint64_t aTime, otError aResult);
 #endif
 
-#if OPENTHREAD_CONFIG_BORDER_AGENT_ENABLE
-    void OutputBorderAgentCounters(const otBorderAgentCounters &aCounters);
-#if OPENTHREAD_CONFIG_BORDER_AGENT_EPHEMERAL_KEY_ENABLE
-    static void HandleBorderAgentEphemeralKeyStateChange(void *aContext);
-    void        HandleBorderAgentEphemeralKeyStateChange(void);
-#endif
-#endif
-
     static void HandleDetachGracefullyResult(void *aContext);
     void        HandleDetachGracefullyResult(void);
 
@@ -335,11 +306,27 @@ private:
     static void HandleIp6Receive(otMessage *aMessage, void *aContext);
 #endif
 
+#if OPENTHREAD_CONFIG_P2P_ENABLE
+#if OPENTHREAD_CONFIG_WAKEUP_COORDINATOR_ENABLE
+    static void HandleP2pLinkDone(void *aContext);
+    void        HandleP2pLinkDone(void);
+#endif
+
+    static void HandleP2pUnlinkDone(void *aContext);
+    void        HandleP2pUnlinkDone(void);
+#endif
+
+#if OPENTHREAD_CONFIG_WAKEUP_COORDINATOR_ENABLE
+    static void HandleWakeupResult(otError aError, void *aContext);
+    void        HandleWakeupResult(otError aError);
+#endif
+
 #endif // OPENTHREAD_FTD || OPENTHREAD_MTD
 
 #if OPENTHREAD_CONFIG_DIAG_ENABLE
-    static void HandleDiagOutput(const char *aFormat, va_list aArguments, void *aContext);
-    void        HandleDiagOutput(const char *aFormat, va_list aArguments);
+    static void HandleDiagOutput(const char *aFormat, va_list aArguments, void *aContext)
+        OT_TOOL_PRINTF_STYLE_FORMAT_ARG_CHECK(1, 0);
+    void HandleDiagOutput(const char *aFormat, va_list aArguments) OT_TOOL_PRINTF_STYLE_FORMAT_ARG_CHECK(2, 0);
 #endif
 
     void SetCommandTimeout(uint32_t aTimeoutMilli);
@@ -379,6 +366,10 @@ private:
 
 #if OPENTHREAD_CONFIG_MULTICAST_DNS_ENABLE && OPENTHREAD_CONFIG_MULTICAST_DNS_PUBLIC_API_ENABLE
     Mdns mMdns;
+#endif
+
+#if OPENTHREAD_CONFIG_BORDER_AGENT_ENABLE
+    Ba mBa;
 #endif
 
 #if (OPENTHREAD_CONFIG_THREAD_VERSION >= OT_THREAD_VERSION_1_2)
@@ -429,6 +420,9 @@ private:
 #if OPENTHREAD_CONFIG_PING_SENDER_ENABLE
     PingSender mPing;
 #endif
+#if OPENTHREAD_CONFIG_MESH_DIAG_ENABLE && OPENTHREAD_FTD
+    MeshDiag mMeshDiag;
+#endif
 #endif // OPENTHREAD_FTD || OPENTHREAD_MTD
 
 #if OPENTHREAD_CONFIG_TMF_ANYCAST_LOCATOR_ENABLE
@@ -439,4 +433,4 @@ private:
 } // namespace Cli
 } // namespace ot
 
-#endif // CLI_HPP_
+#endif // OT_CLI_CLI_HPP_

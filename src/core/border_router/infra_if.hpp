@@ -29,11 +29,10 @@
 /**
  * @file
  *   This file includes definitions for infrastructure network interface.
- *
  */
 
-#ifndef INFRA_IF_HPP_
-#define INFRA_IF_HPP_
+#ifndef OT_CORE_BORDER_ROUTER_INFRA_IF_HPP_
+#define OT_CORE_BORDER_ROUTER_INFRA_IF_HPP_
 
 #include "openthread-core-config.h"
 
@@ -44,47 +43,76 @@
 #include "common/data.hpp"
 #include "common/error.hpp"
 #include "common/locator.hpp"
+#include "common/message.hpp"
 #include "common/string.hpp"
 #include "net/ip6.hpp"
 
 namespace ot {
 namespace BorderRouter {
 
+extern "C" void    otPlatInfraIfRecvIcmp6Nd(otInstance         *aInstance,
+                                            uint32_t            aInfraIfIndex,
+                                            const otIp6Address *aSrcAddress,
+                                            const uint8_t      *aBuffer,
+                                            uint16_t            aBufferLength);
+extern "C" otError otPlatInfraIfStateChanged(otInstance *aInstance, uint32_t aInfraIfIndex, bool aIsRunning);
+extern "C" void    otPlatInfraIfDiscoverNat64PrefixDone(otInstance        *aInstance,
+                                                        uint32_t           aInfraIfIndex,
+                                                        const otIp6Prefix *aIp6Prefix);
+extern "C" void    otPlatInfraIfDhcp6PdClientHandleReceived(otInstance *aInstance,
+                                                            otMessage  *aMessage,
+                                                            uint32_t    aInfraIfIndex);
+
+class RoutingManager;
+
 /**
  * Represents the infrastructure network interface on a border router.
- *
  */
 class InfraIf : public InstanceLocator
 {
+    friend class RoutingManager;
+    friend void    otPlatInfraIfRecvIcmp6Nd(otInstance         *aInstance,
+                                            uint32_t            aInfraIfIndex,
+                                            const otIp6Address *aSrcAddress,
+                                            const uint8_t      *aBuffer,
+                                            uint16_t            aBufferLength);
+    friend otError otPlatInfraIfStateChanged(otInstance *aInstance, uint32_t aInfraIfIndex, bool aIsRunning);
+    friend void    otPlatInfraIfDiscoverNat64PrefixDone(otInstance        *aInstance,
+                                                        uint32_t           aInfraIfIndex,
+                                                        const otIp6Prefix *aIp6Prefix);
+    friend void    otPlatInfraIfDhcp6PdClientHandleReceived(otInstance *aInstance,
+                                                            otMessage  *aMessage,
+                                                            uint32_t    aInfraIfIndex);
+
 public:
     static constexpr uint16_t kInfoStringSize = 20; ///< Max chars for the info string (`ToString()`).
 
-    typedef String<kInfoStringSize> InfoString;  ///< String type returned from `ToString()`.
-    typedef Data<kWithUint16Length> Icmp6Packet; ///< An IMCPv6 packet (data containing the IP payload)
+    typedef String<kInfoStringSize>       InfoString;       ///< String type returned from `ToString()`.
+    typedef Data<kWithUint16Length>       Icmp6Packet;      ///< An IMCPv6 packet (data containing the IP payload)
+    typedef otPlatInfraIfLinkLayerAddress LinkLayerAddress; ///< A link-layer address
 
     /**
      * Initializes the `InfraIf`.
      *
      * @param[in]  aInstance  A OpenThread instance.
-     *
      */
     explicit InfraIf(Instance &aInstance);
 
     /**
      * Initializes the `InfraIf`.
      *
-     * @param[in]  aIfIndex        The infrastructure interface index.
+     * This method can also be used to re-initialize and switch the infrastructure interface index to a new one.
+     * Switching the interface index will trigger all components running on the previous interface (Border Routing,
+     * mDNS, etc) to be stopped (as if the previous if-index is no longer running) before restarting operations on the
+     * new interface.
      *
-     * @retval  kErrorNone         Successfully initialized the `InfraIf`.
-     * @retval  kErrorInvalidArgs  The index of the infra interface is not valid.
-     * @retval  kErrorInvalidState The `InfraIf` is already initialized.
-     *
+     * @param[in]  aInfraIfIndex      The infrastructure network interface index.
+     * @param[in]  aInfraIfIsRunning  A boolean that indicates whether the infrastructure interface is running.
      */
-    Error Init(uint32_t aIfIndex);
+    void Init(uint32_t aInfraIfIndex, bool aInfraIfIsRunning);
 
     /**
      * Deinitilaizes the `InfraIf`.
-     *
      */
     void Deinit(void);
 
@@ -93,7 +121,6 @@ public:
      *
      * @retval TRUE    The `InfraIf` is initialized.
      * @retval FALSE   The `InfraIf` is not initialized.
-     *
      */
     bool IsInitialized(void) const { return mInitialized; }
 
@@ -102,7 +129,6 @@ public:
      *
      * @retval TRUE   The infrastructure interface is running.
      * @retval FALSE  The infrastructure interface is not running.
-     *
      */
     bool IsRunning(void) const { return mIsRunning; }
 
@@ -110,7 +136,6 @@ public:
      * Returns the infrastructure interface index.
      *
      * @returns The interface index or zero if not initialized.
-     *
      */
     uint32_t GetIfIndex(void) const { return mIfIndex; }
 
@@ -118,9 +143,18 @@ public:
      * Sets the infrastructure interface index.
      *
      * @param[in]  aIfIndex        The infrastructure interface index.
-     *
      */
     void SetIfIndex(uint32_t aIfIndex) { mIfIndex = aIfIndex; }
+
+    /**
+     * Gets the infrastructure interface link-layer address.
+     *
+     * @param[out]  aLinkLayerAddress     A reference to return the interface link-layer address.
+     *
+     * @retval  kErrorNone    Successfully get the infrastructure interface link-layer address.
+     * @retval  kErrorFailed  Failed to get the infrastructure interface link-layer address.
+     */
+    Error GetLinkLayerAddress(LinkLayerAddress &aLinkLayerAddress);
 
     /**
      * Indicates whether or not the infra interface has the given IPv6 address assigned.
@@ -131,7 +165,6 @@ public:
      *
      * @retval TRUE   The infrastructure interface has @p aAddress.
      * @retval FALSE  The infrastructure interface does not have @p aAddress.
-     *
      */
     bool HasAddress(const Ip6::Address &aAddress) const;
 
@@ -145,20 +178,10 @@ public:
      *
      * @retval kErrorNone    Successfully sent the ICMPv6 message.
      * @retval kErrorFailed  Failed to send the ICMPv6 message.
-     *
      */
     Error Send(const Icmp6Packet &aPacket, const Ip6::Address &aDestination) const;
 
-    /**
-     * Processes a received ICMPv6 Neighbor Discovery packet from an infrastructure interface.
-     *
-     * @param[in]  aIfIndex       The infrastructure interface index on which the ICMPv6 message is received.
-     * @param[in]  aSource        The IPv6 source address.
-     * @param[in]  aPacket        The ICMPv6 packet.
-     *
-     */
-    void HandledReceived(uint32_t aIfIndex, const Ip6::Address &aSource, const Icmp6Packet &aPacket);
-
+#if OPENTHREAD_CONFIG_NAT64_BORDER_ROUTING_ENABLE
     /**
      * Sends a request to discover the NAT64 prefix on the infrastructure interface.
      *
@@ -166,41 +189,49 @@ public:
      *
      * @retval  kErrorNone    Successfully request NAT64 prefix discovery.
      * @retval  kErrorFailed  Failed to request NAT64 prefix discovery.
-     *
      */
     Error DiscoverNat64Prefix(void) const;
+#endif
+
+#if OPENTHREAD_CONFIG_BORDER_ROUTING_DHCP6_PD_ENABLE && OPENTHREAD_CONFIG_BORDER_ROUTING_DHCP6_PD_CLIENT_ENABLE
 
     /**
-     * Processes the discovered NAT64 prefix.
+     * Enables or disables listening for DHCPv6 Prefix Delegation (PD) messages on client (on DHCPv6 client port 546).
      *
-     * @param[in]  aIfIndex    The infrastructure interface index on which the host address is received.
-     * @param[in]  aPrefix     The NAT64 prefix on the infrastructure link.
-     *
+     * @param[in] aEnable        A boolean to enable (`true`) or disable (`false`) listening.
      */
-    void DiscoverNat64PrefixDone(uint32_t aIfIndex, const Ip6::Prefix &aPrefix);
+    void SetDhcp6ListeningEnabled(bool aEnable);
 
     /**
-     * Handles infrastructure interface state changes.
+     * Sends a DHCPv6 message to a unicast or multicast destination address.
      *
-     * @param[in]  aIfIndex         The infrastructure interface index.
-     * @param[in]  aIsRunning       A boolean that indicates whether the infrastructure interface is running.
+     * The message must be sent from the DHCPv6 client UDP port 546 to the server port 547.
      *
-     * @retval  kErrorNone          Successfully updated the infra interface status.
-     * @retval  kErrorInvalidState  The `InfraIf` is not initialized.
-     * @retval  kErrorInvalidArgs   The @p IfIndex does not match the interface index of `InfraIf`.
-     *
+     * @param[in] aMessage       The `Message` containing the DHCPv6 payload. Ownership is transferred.
+     * @param[in] aDestAddress   The IPv6 destination address.
      */
-    Error HandleStateChanged(uint32_t aIfIndex, bool aIsRunning);
+    void SendDhcp6(Message &aMessage, Ip6::Address &aDestAddress);
+
+#endif // OPENTHREAD_CONFIG_BORDER_ROUTING_DHCP6_PD_ENABLE && OPENTHREAD_CONFIG_BORDER_ROUTING_DHCP6_PD_CLIENT_ENABLE
 
     /**
      * Converts the `InfraIf` to a human-readable string.
      *
      * @returns The string representation of `InfraIf`.
-     *
      */
     InfoString ToString(void) const;
 
 private:
+    // Callbacks from platform
+    void  HandledReceived(uint32_t aIfIndex, const Ip6::Address &aSource, const Icmp6Packet &aPacket);
+    Error HandleStateChanged(uint32_t aIfIndex, bool aIsRunning);
+#if OPENTHREAD_CONFIG_NAT64_BORDER_ROUTING_ENABLE
+    void DiscoverNat64PrefixDone(uint32_t aIfIndex, const Ip6::Prefix &aPrefix);
+#endif
+#if OPENTHREAD_CONFIG_BORDER_ROUTING_DHCP6_PD_ENABLE && OPENTHREAD_CONFIG_BORDER_ROUTING_DHCP6_PD_CLIENT_ENABLE
+    void HandleDhcp6Received(Message &aMessage, uint32_t aInfraIfIndex);
+#endif
+
     bool     mInitialized : 1;
     bool     mIsRunning : 1;
     uint32_t mIfIndex;
@@ -211,4 +242,4 @@ private:
 
 #endif // OPENTHREAD_CONFIG_BORDER_ROUTING_ENABLE
 
-#endif // INFRA_IF_HPP_
+#endif // OT_CORE_BORDER_ROUTER_INFRA_IF_HPP_

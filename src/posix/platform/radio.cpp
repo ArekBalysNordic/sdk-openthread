@@ -40,6 +40,7 @@
 
 #include "common/code_utils.hpp"
 #include "common/new.hpp"
+#include "common/string.hpp"
 #include "posix/platform/radio.hpp"
 #include "posix/platform/spinel_driver_getter.hpp"
 #include "posix/platform/spinel_manager.hpp"
@@ -67,8 +68,15 @@ Radio::Radio(void)
 #if OPENTHREAD_POSIX_CONFIG_RCP_CAPS_DIAG_ENABLE
     , mRcpCapsDiag(mRadioSpinel)
 #endif
+#if OPENTHREAD_POSIX_CONFIG_TMP_STORAGE_ENABLE
+    , mTmpStorage()
+#endif
 {
 }
+
+#if OPENTHREAD_SPINEL_CONFIG_COPROCESSOR_RESET_FAILURE_CALLBACK_ENABLE
+OT_TOOL_WEAK void platformCoprocessorResetFailed(void *) {}
+#endif
 
 void Radio::Init(const char *aUrl)
 {
@@ -85,23 +93,39 @@ void Radio::Init(const char *aUrl)
     VerifyOrDie(mRadioUrl.GetPath() != nullptr, OT_EXIT_INVALID_ARGUMENTS);
 
     memset(&callbacks, 0, sizeof(callbacks));
-#if OPENTHREAD_CONFIG_DIAG_ENABLE
-    callbacks.mDiagReceiveDone  = otPlatDiagRadioReceiveDone;
-    callbacks.mDiagTransmitDone = otPlatDiagRadioTransmitDone;
-#endif // OPENTHREAD_CONFIG_DIAG_ENABLE
     callbacks.mEnergyScanDone    = otPlatRadioEnergyScanDone;
     callbacks.mBusLatencyChanged = otPlatRadioBusLatencyChanged;
     callbacks.mReceiveDone       = otPlatRadioReceiveDone;
     callbacks.mTransmitDone      = otPlatRadioTxDone;
     callbacks.mTxStarted         = otPlatRadioTxStarted;
+#if OPENTHREAD_POSIX_CONFIG_TMP_STORAGE_ENABLE
+    callbacks.mSaveRadioSpinelMetrics    = SaveRadioSpinelMetrics;
+    callbacks.mRestoreRadioSpinelMetrics = RestoreRadioSpinelMetrics;
+    callbacks.mRadioSpinelMetricsContext = this;
+    mTmpStorage.Init();
+#endif
 
     resetRadio             = !mRadioUrl.HasParam("no-reset");
     skipCompatibilityCheck = mRadioUrl.HasParam("skip-rcp-compatibility-check");
 
+#if OPENTHREAD_SPINEL_CONFIG_COPROCESSOR_RESET_FAILURE_CALLBACK_ENABLE
+    GetSpinelDriver().SetCoprocessorResetFailureCallback(platformCoprocessorResetFailed, this);
+#endif
+
     mRadioSpinel.SetCallbacks(callbacks);
-    mRadioSpinel.Init(skipCompatibilityCheck, resetRadio, &GetSpinelDriver(), kRequiredRadioCaps, aEnableRcpTimeSync);
+    mRadioSpinel.Init(skipCompatibilityCheck, resetRadio, &GetSpinelDriver(),
+                      (skipCompatibilityCheck ? 0 : kRequiredRadioCaps), aEnableRcpTimeSync);
 
     ProcessRadioUrl(mRadioUrl);
+}
+
+void Radio::Deinit(void)
+{
+    mRadioSpinel.Deinit();
+
+#if OPENTHREAD_POSIX_CONFIG_TMP_STORAGE_ENABLE
+    mTmpStorage.Deinit();
+#endif
 }
 
 void Radio::ProcessRadioUrl(const RadioUrl &aRadioUrl)
@@ -126,6 +150,21 @@ void Radio::ProcessRadioUrl(const RadioUrl &aRadioUrl)
         SuccessOrDie(aRadioUrl.ParseInt8("cca-threshold", value));
         SuccessOrDie(mRadioSpinel.SetCcaEnergyDetectThreshold(value));
     }
+
+#if OPENTHREAD_POSIX_CONFIG_CONFIGURATION_FILE_ENABLE
+    // config files should be parsed before the region parameter
+    if (aRadioUrl.HasParam("product-config-file"))
+    {
+        const char *configFile = aRadioUrl.GetValue("product-config-file");
+        SuccessOrDie(sConfig.SetProductConfigFile(configFile));
+    }
+
+    if (aRadioUrl.HasParam("factory-config-file"))
+    {
+        const char *configFile = aRadioUrl.GetValue("factory-config-file");
+        SuccessOrDie(sConfig.SetFactoryConfigFile(configFile));
+    }
+#endif // OPENTHREAD_POSIX_CONFIG_CONFIGURATION_FILE_ENABLE
 
     if ((region = aRadioUrl.GetValue("region")) != nullptr)
     {
@@ -214,7 +253,7 @@ ot::Spinel::RadioSpinel &GetRadioSpinel(void) { return sRadio.GetRadioSpinel(); 
 ot::Posix::RcpCapsDiag &GetRcpCapsDiag(void) { return sRadio.GetRcpCapsDiag(); }
 #endif
 
-void platformRadioDeinit(void) { GetRadioSpinel().Deinit(); }
+void platformRadioDeinit(void) { sRadio.Deinit(); }
 
 void platformRadioHandleStateChange(otInstance *aInstance, otChangedFlags aFlags)
 {
@@ -253,6 +292,12 @@ void otPlatRadioSetShortAddress(otInstance *aInstance, uint16_t aAddress)
 {
     OT_UNUSED_VARIABLE(aInstance);
     SuccessOrDie(GetRadioSpinel().SetShortAddress(aAddress));
+}
+
+void otPlatRadioSetAlternateShortAddress(otInstance *aInstance, uint16_t aAddress)
+{
+    OT_UNUSED_VARIABLE(aInstance);
+    SuccessOrDie(GetRadioSpinel().SetAlternateShortAddress(aAddress));
 }
 
 void otPlatRadioSetPromiscuous(otInstance *aInstance, bool aEnable)
@@ -525,6 +570,9 @@ static char                    *sDiagOutput          = nullptr;
 static uint16_t                 sDiagOutputLen       = 0;
 
 static void handleDiagOutput(const char *aFormat, va_list aArguments, void *aContext)
+    OT_TOOL_PRINTF_STYLE_FORMAT_ARG_CHECK(1, 0);
+
+static void handleDiagOutput(const char *aFormat, va_list aArguments, void *aContext)
 {
     OT_UNUSED_VARIABLE(aContext);
     int charsWritten;
@@ -719,15 +767,15 @@ otError otPlatDiagRadioGetPowerSettings(otInstance *aInstance,
 {
     OT_UNUSED_VARIABLE(aInstance);
     static constexpr uint16_t kRawPowerStringSize = OPENTHREAD_CONFIG_POWER_CALIBRATION_RAW_POWER_SETTING_SIZE * 2 + 1;
-    static constexpr uint16_t kFmtStringSize      = 100;
 
     otError error;
     char    cmd[OPENTHREAD_CONFIG_DIAG_CMD_LINE_BUFFER_SIZE];
     char    output[OPENTHREAD_CONFIG_DIAG_OUTPUT_BUFFER_SIZE];
     int     targetPower;
     int     actualPower;
-    char    rawPowerSetting[kRawPowerStringSize];
-    char    fmt[kFmtStringSize];
+    char    rawPowerSetting[OPENTHREAD_CONFIG_DIAG_OUTPUT_BUFFER_SIZE];
+
+    static_assert(OPENTHREAD_CONFIG_DIAG_OUTPUT_BUFFER_SIZE >= kRawPowerStringSize, "RawPowerSetting too large");
 
     assert((aTargetPower != nullptr) && (aActualPower != nullptr) && (aRawPowerSetting != nullptr) &&
            (aRawPowerSettingLength != nullptr));
@@ -736,9 +784,10 @@ otError otPlatDiagRadioGetPowerSettings(otInstance *aInstance,
 
     snprintf(cmd, sizeof(cmd), "powersettings %d", aChannel);
     SuccessOrExit(error = GetRadioSpinel().PlatDiagProcess(cmd));
-    snprintf(fmt, sizeof(fmt), "TargetPower(0.01dBm): %%d\r\nActualPower(0.01dBm): %%d\r\nRawPowerSetting: %%%us\r\n",
-             kRawPowerStringSize);
-    VerifyOrExit(sscanf(output, fmt, &targetPower, &actualPower, rawPowerSetting) == 3, error = OT_ERROR_FAILED);
+    output[sizeof(output) - 1] = ot::kNullChar;
+    VerifyOrExit(sscanf(output, "TargetPower(0.01dBm): %d\r\nActualPower(0.01dBm): %d\r\nRawPowerSetting: %s\r\n",
+                        &targetPower, &actualPower, rawPowerSetting) == 3,
+                 error = OT_ERROR_FAILED);
     SuccessOrExit(
         error = ot::Utils::CmdLineParser::ParseAsHexString(rawPowerSetting, *aRawPowerSettingLength, aRawPowerSetting));
     *aTargetPower = static_cast<int16_t>(targetPower);
@@ -1057,9 +1106,13 @@ otError otPlatResetToBootloader(otInstance *aInstance)
 }
 #endif
 
-const otRadioSpinelMetrics *otSysGetRadioSpinelMetrics(void) { return GetRadioSpinel().GetRadioSpinelMetrics(); }
+const otRadioSpinelMetrics *otSysGetRadioSpinelMetrics(void) { return &GetRadioSpinel().GetRadioSpinelMetrics(); }
 
 const otRcpInterfaceMetrics *otSysGetRcpInterfaceMetrics(void)
 {
     return sRadio.GetSpinelInterface().GetRcpInterfaceMetrics();
 }
+
+#if OPENTHREAD_SPINEL_CONFIG_RCP_RESTORATION_MAX_COUNT > 0
+void otSysSetRcpRestorationEnabled(bool aEnabled) { return GetRadioSpinel().SetRcpRestorationEnabled(aEnabled); }
+#endif

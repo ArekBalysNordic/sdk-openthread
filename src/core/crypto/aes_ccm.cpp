@@ -214,13 +214,21 @@ void AesCcm::Payload(void *aPlainText, void *aCipherText, uint32_t aLength, Mode
 
         if (aMode == kEncrypt)
         {
-            byte               = plaintextBytes[i];
-            ciphertextBytes[i] = byte ^ mCtrPad[mCtrLength++];
+            byte = plaintextBytes[i];
+
+            if (ciphertextBytes != nullptr)
+            {
+                ciphertextBytes[i] = byte ^ mCtrPad[mCtrLength++];
+            }
         }
         else
         {
-            byte              = ciphertextBytes[i] ^ mCtrPad[mCtrLength++];
-            plaintextBytes[i] = byte;
+            byte = ciphertextBytes[i] ^ mCtrPad[mCtrLength++];
+
+            if (plaintextBytes != nullptr)
+            {
+                plaintextBytes[i] = byte;
+            }
         }
 
         if (mBlockLength == sizeof(mBlock))
@@ -246,7 +254,7 @@ void AesCcm::Payload(void *aPlainText, void *aCipherText, uint32_t aLength, Mode
     }
 }
 
-#if !OPENTHREAD_RADIO
+#if OPENTHREAD_FTD || OPENTHREAD_MTD
 void AesCcm::Payload(Message &aMessage, uint16_t aOffset, uint16_t aLength, Mode aMode)
 {
     Message::MutableChunk chunk;

@@ -35,12 +35,6 @@
 
 #if OPENTHREAD_CONFIG_SRP_SERVER_ADVERTISING_PROXY_ENABLE
 
-#include "common/as_core_type.hpp"
-#include "common/debug.hpp"
-#include "common/locator_getters.hpp"
-#include "common/log.hpp"
-#include "common/serial_number.hpp"
-#include "common/type_traits.hpp"
 #include "instance/instance.hpp"
 
 namespace ot {
@@ -1012,7 +1006,7 @@ void AdvertisingProxy::RegisterService(Service &aService)
 
         IgnoreError(Server::Service::ParseSubTypeServiceName(subTypeName.AsCString(), label, sizeof(label)));
         SuccessOrExit(error = labelString.Set(label));
-        IgnoreError(subTypeHeapStrings.PushBack(static_cast<Heap::String &&>(labelString)));
+        IgnoreError(subTypeHeapStrings.PushBack(labelString.Move()));
         IgnoreError(subTypeLabels.PushBack(subTypeHeapStrings.Back()->AsCString()));
     }
 
@@ -1258,7 +1252,7 @@ void AdvertisingProxy::HandleTimer(void)
 
     VerifyOrExit(mState == kStateRunning);
 
-    mAdvInfoList.RemoveAllMatching(AdvInfo::ExpirationChecker(nextTime.GetNow()), expiredList);
+    mAdvInfoList.RemoveAllMatching(expiredList, ExpirationChecker(nextTime.GetNow()));
 
     for (AdvInfo &adv : mAdvInfoList)
     {
@@ -1287,7 +1281,7 @@ void AdvertisingProxy::HandleTasklet(void)
     {
         OwningList<AdvInfo> completedList;
 
-        mAdvInfoList.RemoveAllMatching(AdvInfo::CompletionChecker(), completedList);
+        mAdvInfoList.RemoveAllMatching(completedList, AdvInfo::CompletionChecker());
 
         VerifyOrExit(!completedList.IsEmpty());
 

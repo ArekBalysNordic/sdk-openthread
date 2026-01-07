@@ -134,6 +134,12 @@ const Dataset::ComponentMapper *Dataset::LookupMapper(const char *aName) const
             &Dataset::OutputSecurityPolicy,
             &Dataset::ParseSecurityPolicy,
         },
+        {
+            "wakeupchannel",
+            &Components::mIsWakeupChannelPresent,
+            &Dataset::OutputWakeupChannel,
+            &Dataset::ParseWakeupChannel,
+        },
     };
 
     static_assert(BinarySearch::IsSorted(kMappers), "kMappers is not sorted");
@@ -181,6 +187,24 @@ void Dataset::OutputActiveTimestamp(const otOperationalDataset &aDataset)
  * Gets or sets #otOperationalDataset::mChannel.
  */
 void Dataset::OutputChannel(const otOperationalDataset &aDataset) { OutputLine("%u", aDataset.mChannel); }
+
+/**
+ * @cli dataset wakeupchannel (get,set)
+ * @code
+ * dataset wakeupchannel
+ * 13
+ * Done
+ * @endcode
+ * @code
+ * dataset wakeupchannel 13
+ * Done
+ * @endcode
+ * @cparam dataset wakeupchannel [@ca{channel-num}]
+ * Use the optional `channel-num` argument to set the wake-up channel.
+ * @par
+ * Gets or sets #otOperationalDataset::mWakeupChannel.
+ */
+void Dataset::OutputWakeupChannel(const otOperationalDataset &aDataset) { OutputLine("%u", aDataset.mWakeupChannel); }
 
 /**
  * @cli dataset channelmask (get,set)
@@ -412,6 +436,11 @@ otError Dataset::ParseChannel(Arg *&aArgs, otOperationalDataset &aDataset)
     return aArgs++->ParseAsUint16(aDataset.mChannel);
 }
 
+otError Dataset::ParseWakeupChannel(Arg *&aArgs, otOperationalDataset &aDataset)
+{
+    return aArgs++->ParseAsUint16(aDataset.mWakeupChannel);
+}
+
 otError Dataset::ParseChannelMask(Arg *&aArgs, otOperationalDataset &aDataset)
 {
     return aArgs++->ParseAsUint32(aDataset.mChannelMask);
@@ -549,27 +578,29 @@ exit:
     return error;
 }
 
-otError Dataset::Print(otOperationalDatasetTlvs &aDatasetTlvs)
+otError Dataset::Print(otOperationalDatasetTlvs &aDatasetTlvs, bool aNonsensitiveOnly)
 {
     struct ComponentTitle
     {
-        const char *mTitle; // Title to output.
-        const char *mName;  // To use with `LookupMapper()`.
+        const char *mTitle;       // Title to output.
+        const char *mName;        // To use with `LookupMapper()`.
+        bool        mIsSensitive; // Whether the field is sensitive.
     };
 
     static const ComponentTitle kTitles[] = {
-        {"Pending Timestamp", "pendingtimestamp"},
-        {"Active Timestamp", "activetimestamp"},
-        {"Channel", "channel"},
-        {"Channel Mask", "channelmask"},
-        {"Delay", "delay"},
-        {"Ext PAN ID", "extpanid"},
-        {"Mesh Local Prefix", "meshlocalprefix"},
-        {"Network Key", "networkkey"},
-        {"Network Name", "networkname"},
-        {"PAN ID", "panid"},
-        {"PSKc", "pskc"},
-        {"Security Policy", "securitypolicy"},
+        {"Pending Timestamp", "pendingtimestamp", false},
+        {"Active Timestamp", "activetimestamp", false},
+        {"Channel", "channel", false},
+        {"Wake-up Channel", "wakeupchannel", false},
+        {"Channel Mask", "channelmask", false},
+        {"Delay", "delay", false},
+        {"Ext PAN ID", "extpanid", false},
+        {"Mesh Local Prefix", "meshlocalprefix", false},
+        {"Network Key", "networkkey", true},
+        {"Network Name", "networkname", false},
+        {"PAN ID", "panid", false},
+        {"PSKc", "pskc", true},
+        {"Security Policy", "securitypolicy", false},
     };
 
     otError              error;
@@ -579,12 +610,21 @@ otError Dataset::Print(otOperationalDatasetTlvs &aDatasetTlvs)
 
     for (const ComponentTitle &title : kTitles)
     {
-        const ComponentMapper *mapper = LookupMapper(title.mName);
+        const ComponentMapper *mapper;
+
+        mapper = LookupMapper(title.mName);
 
         if (dataset.mComponents.*mapper->mIsPresentPtr)
         {
             OutputFormat("%s: ", title.mTitle);
-            (this->*mapper->mOutput)(dataset);
+            if (aNonsensitiveOnly && title.mIsSensitive)
+            {
+                OutputLine("[Redacted]");
+            }
+            else
+            {
+                (this->*mapper->mOutput)(dataset);
+            }
         }
     }
 
@@ -658,8 +698,24 @@ exit:
  * 0e08000000000001000000030000103506000...3023d82c841eff0e68db86f35740c030000ff
  * Done
  * @endcode
- * @cparam dataset active [-x]
- * The optional `-x` argument prints the Active Operational %Dataset values as hex-encoded TLVs.
+ * @code
+ * dataset active -ns
+ * Active Timestamp: 1
+ * Channel: 13
+ * Channel Mask: 0x07fff800
+ * Ext PAN ID: d63e8e3e495ebbc3
+ * Mesh Local Prefix: fd3d:b50b:f96d:722d::/64
+ * Network Key: [Redacted]
+ * Network Name: OpenThread-8f28
+ * PAN ID: 0x8f28
+ * PSKc: [Redacted]
+ * Security Policy: 0, onrcb
+ * Done
+ * @endcode
+ * @cparam dataset active [-x|-ns]
+ * * The optional `-x` argument prints the Active Operational Dataset values as hex-encoded TLVs.
+ * * The optional `-ns` argument prints the Active Operational Dataset values and redact the sensitive values, including
+ * the network key and PSKc fields.
  * @par api_copy
  * #otDatasetGetActive
  * @par
@@ -674,11 +730,15 @@ template <> otError Dataset::Process<Cmd("active")>(Arg aArgs[])
 
     if (aArgs[0].IsEmpty())
     {
-        error = Print(dataset);
+        error = Print(dataset, /* aNonsensitiveOnly */ false);
     }
     else if (aArgs[0] == "-x")
     {
         OutputBytesLine(dataset.mTlvs, dataset.mLength);
+    }
+    else if (aArgs[0] == "-ns")
+    {
+        error = Print(dataset, /* aNonsensitiveOnly */ true);
     }
     else
     {
@@ -698,11 +758,15 @@ template <> otError Dataset::Process<Cmd("pending")>(Arg aArgs[])
 
     if (aArgs[0].IsEmpty())
     {
-        error = Print(datasetTlvs);
+        error = Print(datasetTlvs, /* aNonsensitiveOnly */ false);
     }
     else if (aArgs[0] == "-x")
     {
         OutputBytesLine(datasetTlvs.mTlvs, datasetTlvs.mLength);
+    }
+    else if (aArgs[0] == "-ns")
+    {
+        error = Print(datasetTlvs, /* aNonsensitiveOnly */ true);
     }
     else
     {
@@ -1223,20 +1287,11 @@ void Dataset::HandleDatasetUpdater(otError aError)
 
 otError Dataset::Process(Arg aArgs[])
 {
-#define CmdEntry(aCommandString)                               \
-    {                                                          \
-        aCommandString, &Dataset::Process<Cmd(aCommandString)> \
-    }
+#define CmdEntry(aCommandString) {aCommandString, &Dataset::Process<Cmd(aCommandString)>}
 
     static constexpr Command kCommands[] = {
-        CmdEntry("active"),
-        CmdEntry("clear"),
-        CmdEntry("commit"),
-        CmdEntry("init"),
-        CmdEntry("mgmtgetcommand"),
-        CmdEntry("mgmtsetcommand"),
-        CmdEntry("pending"),
-        CmdEntry("set"),
+        CmdEntry("active"),         CmdEntry("clear"),          CmdEntry("commit"),  CmdEntry("init"),
+        CmdEntry("mgmtgetcommand"), CmdEntry("mgmtsetcommand"), CmdEntry("pending"), CmdEntry("set"),
         CmdEntry("tlvs"),
 #if OPENTHREAD_CONFIG_DATASET_UPDATER_ENABLE && OPENTHREAD_FTD
         CmdEntry("updater"),
@@ -1253,7 +1308,7 @@ otError Dataset::Process(Arg aArgs[])
 
     if (aArgs[0].IsEmpty())
     {
-        ExitNow(error = Print(sDatasetTlvs));
+        ExitNow(error = Print(sDatasetTlvs, /* aNonsensitiveOnly */ false));
     }
 
     /**

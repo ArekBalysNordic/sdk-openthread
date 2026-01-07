@@ -38,8 +38,10 @@
 #include <stdarg.h>
 #include <stdint.h>
 
+#include <openthread/error.h>
 #include <openthread/instance.h>
 #include <openthread/platform/logging.h>
+#include <openthread/platform/toolchain.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -47,7 +49,6 @@ extern "C" {
 
 /**
  * Represents a CLI command.
- *
  */
 typedef struct otCliCommand
 {
@@ -64,7 +65,6 @@ typedef struct otCliCommand
  *   This module includes functions that control the Thread stack's execution.
  *
  * @{
- *
  */
 
 /**
@@ -75,9 +75,9 @@ typedef struct otCliCommand
  * @param[in]  aArguments  The format string arguments.
  *
  * @returns                Number of bytes written by the callback.
- *
  */
-typedef int (*otCliOutputCallback)(void *aContext, const char *aFormat, va_list aArguments);
+typedef int (*otCliOutputCallback)(void *aContext, const char *aFormat, va_list aArguments)
+    OT_TOOL_PRINTF_STYLE_FORMAT_ARG_CHECK(2, 0);
 
 /**
  * Initialize the CLI module.
@@ -85,7 +85,6 @@ typedef int (*otCliOutputCallback)(void *aContext, const char *aFormat, va_list 
  * @param[in]  aInstance   The OpenThread instance structure.
  * @param[in]  aCallback   A callback method called to process CLI output.
  * @param[in]  aContext    A user context pointer.
- *
  */
 void otCliInit(otInstance *aInstance, otCliOutputCallback aCallback, void *aContext);
 
@@ -93,7 +92,6 @@ void otCliInit(otInstance *aInstance, otCliOutputCallback aCallback, void *aCont
  * Is called to feed in a console input line.
  *
  * @param[in]  aBuf        A pointer to a null-terminated string.
- *
  */
 void otCliInputLine(char *aBuf);
 
@@ -114,7 +112,6 @@ otError otCliSetUserCommands(const otCliCommand *aUserCommands, uint8_t aLength,
  *
  * @param[in]  aBytes   A pointer to data which should be printed.
  * @param[in]  aLength  @p aBytes length.
- *
  */
 void otCliOutputBytes(const uint8_t *aBytes, uint8_t aLength);
 
@@ -123,9 +120,8 @@ void otCliOutputBytes(const uint8_t *aBytes, uint8_t aLength);
  *
  * @param[in]  aFmt   A pointer to the format string.
  * @param[in]  ...    A matching list of arguments.
- *
  */
-void otCliOutputFormat(const char *aFmt, ...);
+void otCliOutputFormat(const char *aFmt, ...) OT_TOOL_PRINTF_STYLE_FORMAT_ARG_CHECK(1, 2);
 
 /**
  * Write error code to the CLI console
@@ -133,7 +129,6 @@ void otCliOutputFormat(const char *aFmt, ...);
  * If the @p aError is `OT_ERROR_PENDING` nothing will be outputted.
  *
  * @param[in]  aError Error code value.
- *
  */
 void otCliAppendResult(otError aError);
 
@@ -144,22 +139,20 @@ void otCliAppendResult(otError aError);
  * @param[in]  aLogRegion  The log region.
  * @param[in]  aFormat     A pointer to the format string.
  * @param[in]  aArgs       va_list matching aFormat.
- *
  */
-void otCliPlatLogv(otLogLevel aLogLevel, otLogRegion aLogRegion, const char *aFormat, va_list aArgs);
+void otCliPlatLogv(otLogLevel aLogLevel, otLogRegion aLogRegion, const char *aFormat, va_list aArgs)
+    OT_TOOL_PRINTF_STYLE_FORMAT_ARG_CHECK(3, 0);
 
 /**
  * Callback to allow vendor specific commands to be added to the user command table.
  *
  * Available when `OPENTHREAD_CONFIG_CLI_VENDOR_COMMANDS_ENABLE` is enabled and
  * `OPENTHREAD_CONFIG_CLI_MAX_USER_CMD_ENTRIES` is greater than 1.
- *
  */
 extern void otCliVendorSetUserCommands(void);
 
 /**
  * @}
- *
  */
 
 #ifdef __cplusplus

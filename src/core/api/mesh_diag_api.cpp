@@ -35,11 +35,7 @@
 
 #if OPENTHREAD_CONFIG_MESH_DIAG_ENABLE && OPENTHREAD_FTD
 
-#include <openthread/mesh_diag.h>
-
-#include "common/as_core_type.hpp"
-#include "common/locator_getters.hpp"
-#include "utils/mesh_diag.hpp"
+#include "instance/instance.hpp"
 
 using namespace ot;
 
@@ -86,6 +82,16 @@ otError otMeshDiagQueryRouterNeighborTable(otInstance                           
                                            void                                      *aContext)
 {
     return AsCoreType(aInstance).Get<Utils::MeshDiag>().QueryRouterNeighborTable(aRloc16, aCallback, aContext);
+}
+
+void otMeshDiagSetResponseTimeout(otInstance *aInstance, uint32_t aTimeout)
+{
+    AsCoreType(aInstance).Get<Utils::MeshDiag>().SetResponseTimeout(aTimeout);
+}
+
+uint32_t otMeshDiagGetResponseTimeout(otInstance *aInstance)
+{
+    return AsCoreType(aInstance).Get<Utils::MeshDiag>().GetResponseTimeout();
 }
 
 #endif // OPENTHREAD_CONFIG_MESH_DIAG_ENABLE && OPENTHREAD_FTD

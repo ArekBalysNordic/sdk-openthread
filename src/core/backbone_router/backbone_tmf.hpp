@@ -31,8 +31,8 @@
  *   This file includes definitions for Backbone TMF functionality.
  */
 
-#ifndef OT_CORE_THREAD_BACKBONE_TMF_HPP_
-#define OT_CORE_THREAD_BACKBONE_TMF_HPP_
+#ifndef OT_CORE_BACKBONE_ROUTER_BACKBONE_TMF_HPP_
+#define OT_CORE_BACKBONE_ROUTER_BACKBONE_TMF_HPP_
 
 #include "openthread-core-config.h"
 
@@ -48,7 +48,6 @@ constexpr uint16_t kBackboneUdpPort = 61631; ///< Backbone TMF UDP Port
 
 /**
  * Implements functionality of the Backbone TMF agent.
- *
  */
 class BackboneTmfAgent : public Coap::Coap
 {
@@ -57,7 +56,6 @@ public:
      * Initializes the object.
      *
      * @param[in] aInstance      A reference to the OpenThread instance.
-     *
      */
     explicit BackboneTmfAgent(Instance &aInstance);
 
@@ -66,7 +64,6 @@ public:
      *
      * @retval kErrorNone    Successfully started the CoAP service.
      * @retval kErrorFailed  Failed to start the Backbone TMF agent.
-     *
      */
     Error Start(void);
 
@@ -75,7 +72,6 @@ public:
      *
      * @retval true   Thread Management Framework Addressing Rules are met.
      * @retval false  Thread Management Framework Addressing Rules are not met.
-     *
      */
     bool IsBackboneTmfMessage(const Ip6::MessageInfo &aMessageInfo) const;
 
@@ -83,7 +79,6 @@ public:
      * Subscribes the Backbone TMF socket to a given IPv6 multicast group on the Backbone network.
      *
      * @param[in] aAddress  The IPv6 multicast group address.
-     *
      */
     void SubscribeMulticast(const Ip6::Address &aAddress);
 
@@ -91,7 +86,6 @@ public:
      * Unsubscribes the Backbone TMF socket from a given IPv6 multicast group on the Backbone network.
      *
      * @param[in] aAddress  The IPv6 multicast group address.
-     *
      */
     void UnsubscribeMulticast(const Ip6::Address &aAddress);
 
@@ -110,4 +104,4 @@ private:
 
 #endif //  OPENTHREAD_FTD && OPENTHREAD_CONFIG_BACKBONE_ROUTER_ENABLE
 
-#endif //  OT_CORE_THREAD_BACKBONE_TMF_HPP_
+#endif // OT_CORE_BACKBONE_ROUTER_BACKBONE_TMF_HPP_

@@ -29,24 +29,11 @@
 /**
  * @file
  *   This file implements MeshCoP Datasets manager to process commands.
- *
  */
 
 #include "dataset_manager.hpp"
 
-#include <stdio.h>
-
-#include "common/as_core_type.hpp"
-#include "common/locator_getters.hpp"
-#include "common/log.hpp"
-#include "common/notifier.hpp"
 #include "instance/instance.hpp"
-#include "meshcop/meshcop.hpp"
-#include "meshcop/meshcop_tlvs.hpp"
-#include "radio/radio.hpp"
-#include "thread/thread_netif.hpp"
-#include "thread/thread_tlvs.hpp"
-#include "thread/uri_paths.hpp"
 
 namespace ot {
 namespace MeshCoP {
@@ -199,9 +186,23 @@ Error DatasetManager::ApplyConfiguration(const Dataset &aDataset) const
 
             if (error != kErrorNone)
             {
-                LogCrit("Failed to set channel to %u when applying dataset: %s", channel, ErrorToString(error));
+                LogCrit("Failed to set PAN channel to %u when applying dataset: %s", channel, ErrorToString(error));
             }
 
+            break;
+        }
+
+        case Tlv::kWakeupChannel:
+        {
+#if OPENTHREAD_CONFIG_WAKEUP_COORDINATOR_ENABLE || OPENTHREAD_CONFIG_WAKEUP_END_DEVICE_ENABLE
+            uint8_t channel = static_cast<uint8_t>(cur->ReadValueAs<WakeupChannelTlv>().GetChannel());
+            error           = Get<Mac::Mac>().SetWakeupChannel(channel);
+
+            if (error != kErrorNone)
+            {
+                LogCrit("Failed to set wake-up channel to %u when applying dataset: %s", channel, ErrorToString(error));
+            }
+#endif
             break;
         }
 
@@ -228,7 +229,7 @@ Error DatasetManager::ApplyConfiguration(const Dataset &aDataset) const
 #endif
 
         case Tlv::kMeshLocalPrefix:
-            Get<Mle::MleRouter>().SetMeshLocalPrefix(cur->ReadValueAs<MeshLocalPrefixTlv>());
+            Get<Mle::Mle>().SetMeshLocalPrefix(cur->ReadValueAs<MeshLocalPrefixTlv>());
             break;
 
         case Tlv::kSecurityPolicy:
@@ -323,7 +324,7 @@ void DatasetManager::SaveLocal(const Dataset &aDataset)
 {
     LocalSave(aDataset);
 
-    switch (Get<Mle::MleRouter>().GetRole())
+    switch (Get<Mle::Mle>().GetRole())
     {
     case Mle::kRoleDisabled:
         Restore(aDataset);
@@ -438,7 +439,7 @@ void DatasetManager::SyncLocalWithLeader(const Dataset &aDataset)
     Error error = kErrorNone;
 
     VerifyOrExit(!mMgmtPending, error = kErrorBusy);
-    VerifyOrExit(Get<Mle::MleRouter>().IsChild() || Get<Mle::MleRouter>().IsRouter(), error = kErrorInvalidState);
+    VerifyOrExit(Get<Mle::Mle>().IsChild() || Get<Mle::Mle>().IsRouter(), error = kErrorInvalidState);
 
     VerifyOrExit(mNetworkTimestamp < mLocalTimestamp, error = kErrorAlready);
 
@@ -497,7 +498,7 @@ exit:
 void DatasetManager::HandleMgmtSetResponse(void                *aContext,
                                            otMessage           *aMessage,
                                            const otMessageInfo *aMessageInfo,
-                                           Error                aError)
+                                           otError              aError)
 {
     static_cast<DatasetManager *>(aContext)->HandleMgmtSetResponse(AsCoapMessagePtr(aMessage),
                                                                    AsCoreTypePtr(aMessageInfo), aError);
@@ -691,6 +692,11 @@ Error DatasetManager::SendGetRequest(const Dataset::Components &aDatasetComponen
         tlvList.Add(Tlv::kChannel);
     }
 
+    if (aDatasetComponents.IsPresent<Dataset::kWakeupChannel>())
+    {
+        tlvList.Add(Tlv::kWakeupChannel);
+    }
+
     if (aDatasetComponents.IsPresent<Dataset::kPskc>())
     {
         tlvList.Add(Tlv::kPskc);
@@ -749,13 +755,13 @@ void DatasetManager::TlvList::Add(uint8_t aTlvType)
 const DatasetManager::SecurelyStoredTlv DatasetManager::kSecurelyStoredTlvs[] = {
     {
         Tlv::kNetworkKey,
-        Crypto::Storage::kActiveDatasetNetworkKeyRef,
-        Crypto::Storage::kPendingDatasetNetworkKeyRef,
+        KeyRefManager::kActiveDatasetNetworkKey,
+        KeyRefManager::kPendingDatasetNetworkKey,
     },
     {
         Tlv::kPskc,
-        Crypto::Storage::kActiveDatasetPskcRef,
-        Crypto::Storage::kPendingDatasetPskcRef,
+        KeyRefManager::kActiveDatasetPskc,
+        KeyRefManager::kPendingDatasetPskc,
     },
 };
 
@@ -763,7 +769,7 @@ void DatasetManager::DestroySecurelyStoredKeys(void) const
 {
     for (const SecurelyStoredTlv &entry : kSecurelyStoredTlvs)
     {
-        Crypto::Storage::DestroyKey(entry.GetKeyRef(mType));
+        Crypto::Storage::DestroyKey(Get<KeyRefManager>().KeyRefFor(entry.GetKeyRefType(mType)));
     }
 }
 
@@ -771,7 +777,9 @@ void DatasetManager::MoveKeysToSecureStorage(Dataset &aDataset) const
 {
     for (const SecurelyStoredTlv &entry : kSecurelyStoredTlvs)
     {
-        SaveTlvInSecureStorageAndClearValue(aDataset, entry.mTlvType, entry.GetKeyRef(mType));
+        KeyRef keyRef = Get<KeyRefManager>().KeyRefFor(entry.GetKeyRefType(mType));
+
+        SaveTlvInSecureStorageAndClearValue(aDataset, entry.mTlvType, keyRef);
     }
 }
 
@@ -786,7 +794,9 @@ void DatasetManager::EmplaceSecurelyStoredKeys(Dataset &aDataset) const
 
     for (const SecurelyStoredTlv &entry : kSecurelyStoredTlvs)
     {
-        if (ReadTlvFromSecureStorage(aDataset, entry.mTlvType, entry.GetKeyRef(mType)) != kErrorNone)
+        KeyRef keyRef = Get<KeyRefManager>().KeyRefFor(entry.GetKeyRefType(mType));
+
+        if (ReadTlvFromSecureStorage(aDataset, entry.mTlvType, keyRef) != kErrorNone)
         {
             moveKeys = true;
         }
@@ -882,6 +892,9 @@ void ActiveDatasetManager::HandleTimer(Timer &aTimer) { aTimer.Get<ActiveDataset
 PendingDatasetManager::PendingDatasetManager(Instance &aInstance)
     : DatasetManager(aInstance, Dataset::kPending, PendingDatasetManager::HandleTimer)
     , mDelayTimer(aInstance)
+#if OPENTHREAD_FTD
+    , mDelayTimerMinimal(DelayTimerTlv::kMinDelay)
+#endif
 {
 }
 

@@ -73,13 +73,11 @@
  * Initializes NCP app.
  *
  * @param[in]  aInstance    A pointer to the OpenThread instance.
- *
  */
 void otAppNcpInit(otInstance *aInstance);
 
 /**
  * Deinitializes NCP app.
- *
  */
 void otAppNcpUpdate(otSysMainloopContext *aContext);
 
@@ -87,7 +85,6 @@ void otAppNcpUpdate(otSysMainloopContext *aContext);
  * Updates the file descriptor sets with file descriptors used by console.
  *
  * @param[in,out]   aMainloop   A pointer to the mainloop context.
- *
  */
 void otAppNcpProcess(const otSysMainloopContext *aContext);
 
@@ -95,13 +92,11 @@ void otAppNcpProcess(const otSysMainloopContext *aContext);
  * Initializes CLI app.
  *
  * @param[in]  aInstance    A pointer to the OpenThread instance.
- *
  */
 void otAppCliInit(otInstance *aInstance);
 
 /**
  * Deinitializes CLI app.
- *
  */
 void otAppCliDeinit(void);
 
@@ -109,7 +104,6 @@ void otAppCliDeinit(void);
  * Updates the file descriptor sets with file descriptors used by console.
  *
  * @param[in,out]   aMainloop   A pointer to the mainloop context.
- *
  */
 void otAppCliUpdate(otSysMainloopContext *aMainloop);
 
@@ -117,7 +111,6 @@ void otAppCliUpdate(otSysMainloopContext *aMainloop);
  * Performs console driver processing.
  *
  * @param[in]    aMainloop      A pointer to the mainloop context.
- *
  */
 void otAppCliProcess(const otSysMainloopContext *aMainloop);
 
@@ -131,7 +124,6 @@ typedef struct PosixConfig
 
 /**
  * Defines the argument return values.
- *
  */
 enum
 {
@@ -146,12 +138,17 @@ enum
 
     OT_POSIX_OPT_SHORT_MAX = 128,
 
+    OT_POSIX_OPT_DATA_PATH,
     OT_POSIX_OPT_RADIO_VERSION,
     OT_POSIX_OPT_REAL_TIME_SIGNAL,
+#if OPENTHREAD_CONFIG_PLATFORM_NETIF_ENABLE
+    OT_POSIX_OPT_TUN_DEVICE,
+#endif
 };
 
 static const struct option kOptions[] = {
     {"backbone-interface-name", required_argument, NULL, OT_POSIX_OPT_BACKBONE_INTERFACE_NAME},
+    {"data-path", required_argument, NULL, OT_POSIX_OPT_DATA_PATH},
     {"debug-level", required_argument, NULL, OT_POSIX_OPT_DEBUG_LEVEL},
     {"dry-run", no_argument, NULL, OT_POSIX_OPT_DRY_RUN},
     {"help", no_argument, NULL, OT_POSIX_OPT_HELP},
@@ -160,6 +157,9 @@ static const struct option kOptions[] = {
     {"radio-version", no_argument, NULL, OT_POSIX_OPT_RADIO_VERSION},
     {"real-time-signal", required_argument, NULL, OT_POSIX_OPT_REAL_TIME_SIGNAL},
     {"time-speed", required_argument, NULL, OT_POSIX_OPT_TIME_SPEED},
+#if OPENTHREAD_CONFIG_PLATFORM_NETIF_ENABLE
+    {"tun-device", required_argument, NULL, OT_POSIX_OPT_TUN_DEVICE},
+#endif
     {"verbose", no_argument, NULL, OT_POSIX_OPT_VERBOSE},
     {0, 0, 0, 0}};
 
@@ -169,6 +169,10 @@ static void PrintUsage(const char *aProgramName, FILE *aStream, int aExitCode)
             "Syntax:\n"
             "    %s [Options] RadioURL [RadioURL]\n"
             "Options:\n"
+            "        --data-path               Path of directory to store data.\n"
+#if OPENTHREAD_CONFIG_PLATFORM_NETIF_ENABLE
+            "        --tun-device              POSIX TUN Device.\n"
+#endif
             "    -B  --backbone-interface-name Backbone network interface name.\n"
             "    -d  --debug-level             Debug level of logging.\n"
             "    -h  --help                    Display this usage information.\n"
@@ -179,7 +183,7 @@ static void PrintUsage(const char *aProgramName, FILE *aStream, int aExitCode)
             "    -s  --time-speed factor       Time speed up factor.\n"
             "    -v  --verbose                 Also log to stderr.\n",
             aProgramName);
-#ifdef __linux__
+#ifdef SIGRTMIN
     fprintf(aStream,
             "        --real-time-signal        (Linux only) The real-time signal number for microsecond timer.\n"
             "                                  Use +N for relative value to SIGRTMIN, and use N for absolute value.\n");
@@ -197,7 +201,11 @@ static void ParseArg(int aArgCount, char *aArgVector[], PosixConfig *aConfig)
     aConfig->mPlatformConfig.mSpeedUpFactor       = 1;
     aConfig->mLogLevel                            = OT_LOG_LEVEL_CRIT;
     aConfig->mPlatformConfig.mInterfaceName       = OPENTHREAD_POSIX_CONFIG_THREAD_NETIF_DEFAULT_NAME;
-#ifdef __linux__
+    aConfig->mPlatformConfig.mDataPath            = OPENTHREAD_CONFIG_POSIX_SETTINGS_PATH;
+#if OPENTHREAD_CONFIG_PLATFORM_NETIF_ENABLE
+    aConfig->mPlatformConfig.mTunDevice = NULL;
+#endif
+#ifdef SIGRTMIN
     aConfig->mPlatformConfig.mRealTimeSignal = SIGRTMIN;
 #endif
 
@@ -252,7 +260,10 @@ static void ParseArg(int aArgCount, char *aArgVector[], PosixConfig *aConfig)
         case OT_POSIX_OPT_RADIO_VERSION:
             aConfig->mPrintRadioVersion = true;
             break;
-#ifdef __linux__
+        case OT_POSIX_OPT_DATA_PATH:
+            aConfig->mPlatformConfig.mDataPath = optarg;
+            break;
+#ifdef SIGRTMIN
         case OT_POSIX_OPT_REAL_TIME_SIGNAL:
             if (optarg[0] == '+')
             {
@@ -263,7 +274,12 @@ static void ParseArg(int aArgCount, char *aArgVector[], PosixConfig *aConfig)
                 aConfig->mPlatformConfig.mRealTimeSignal = atoi(optarg);
             }
             break;
-#endif // __linux__
+#endif
+#if OPENTHREAD_CONFIG_PLATFORM_NETIF_ENABLE
+        case OT_POSIX_OPT_TUN_DEVICE:
+            aConfig->mPlatformConfig.mTunDevice = optarg;
+            break;
+#endif
         case '?':
             PrintUsage(aArgVector[0], stderr, OT_EXIT_INVALID_ARGUMENTS);
             break;

@@ -35,11 +35,12 @@
 
 #if OPENTHREAD_FTD
 
-#include "common/code_utils.hpp"
-#include "common/locator_getters.hpp"
 #include "instance/instance.hpp"
 
 namespace ot {
+
+//---------------------------------------------------------------------------------------------------------------------
+// `ChildTable::Iterator`
 
 ChildTable::Iterator::Iterator(Instance &aInstance, Child::StateFilter aFilter)
     : InstanceLocator(aInstance)
@@ -73,8 +74,12 @@ exit:
     return;
 }
 
+//---------------------------------------------------------------------------------------------------------------------
+// `ChildTable`
+
 ChildTable::ChildTable(Instance &aInstance)
     : InstanceLocator(aInstance)
+    , mNextChildId(Mle::kMaxChildId)
     , mMaxChildrenAllowed(kMaxChildren)
 {
     for (Child &child : mChildren)
@@ -112,6 +117,26 @@ Child *ChildTable::GetNewChild(void)
 
 exit:
     return child;
+}
+
+uint16_t ChildTable::AllocateNewChildRloc16(void)
+{
+    uint16_t rloc16;
+
+    do
+    {
+        mNextChildId++;
+
+        if (mNextChildId > Mle::kMaxChildId)
+        {
+            mNextChildId = Mle::kMinChildId;
+        }
+
+        rloc16 = Get<Mle::Mle>().GetRloc16() | mNextChildId;
+
+    } while (FindChild(rloc16, Child::kInStateAnyExceptInvalid) != nullptr);
+
+    return rloc16;
 }
 
 const Child *ChildTable::FindChild(const Child::AddressMatcher &aMatcher) const
@@ -299,7 +324,7 @@ void ChildTable::RefreshStoredChildren(void)
 {
     const Child *child = &mChildren[0];
 
-    SuccessOrExit(Get<Settings>().DeleteAllChildInfo());
+    Get<Settings>().DeleteAllChildInfo();
 
     for (uint16_t num = mMaxChildrenAllowed; num != 0; num--, child++)
     {

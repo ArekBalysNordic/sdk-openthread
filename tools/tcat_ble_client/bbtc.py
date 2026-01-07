@@ -49,6 +49,7 @@ async def main():
     logging.basicConfig(level=logging.WARNING)
 
     parser = argparse.ArgumentParser(description='Device parameters')
+    parser.add_argument('-a', '--adapter', help='Select HCI adapter')
     parser.add_argument('--debug', help='Enable debug logs', action='store_true')
     parser.add_argument('--info', help='Enable info logs', action='store_true')
     parser.add_argument('--cert_path', help='Path to certificate chain and key', action='store', default='auth')
@@ -70,6 +71,7 @@ async def main():
         logging.getLogger('ble.ble_stream_secure').setLevel(logging.INFO)
         logging.getLogger('ble.udp_stream').setLevel(logging.INFO)
 
+    is_debug = logger.getEffectiveLevel() <= logging.DEBUG
     device = await get_device_by_args(args)
 
     ble_sstream = None
@@ -85,20 +87,25 @@ async def main():
         logger.info(f"Certificates and key loaded from '{args.cert_path}'")
 
         print('Setting up secure TLS channel..', end='')
+        ok = False
         try:
-            await ble_sstream.do_handshake()
-            print('\nDone')
-            ble_sstream.log_cert_identities()
+            cb = None
+            if not is_debug:
+                cb = handshake_progress_bar
+            ok = await ble_sstream.do_handshake(progress_callback=cb)
         except Exception as e:
-            print('\nFailed')
             logger.error(e)
-            ble_sstream.log_cert_identities()
+
+        if ok:
+            print('Done')
+        else:
+            print('Failed')
             quit_with_reason('TLS handshake failure')
 
     ds = ThreadDataset()
     cli = CLI(ds, args, ble_sstream)
     loop = asyncio.get_running_loop()
-    print('Enter \'help\' to see available commands' ' or \'exit\' to exit the application.')
+    print('Enter \'help\' to see available commands or \'exit\' to exit the application.')
     while True:
         user_input = await loop.run_in_executor(None, lambda: input('> '))
         if user_input.lower() == 'exit':
@@ -124,14 +131,21 @@ async def get_device_by_args(args):
         device = await ble_scanner.find_first_by_name(args.name)
         device = await BleStream.create(device.address, BBTC_SERVICE_UUID, BBTC_TX_CHAR_UUID, BBTC_RX_CHAR_UUID)
     elif args.scan:
-        tcat_devices = await ble_scanner.scan_tcat_devices()
+        tcat_devices = await ble_scanner.scan_tcat_devices(adapter=args.adapter)
         device = select_device_by_user_input(tcat_devices)
         if device:
-            device = await BleStream.create(device.address, BBTC_SERVICE_UUID, BBTC_TX_CHAR_UUID, BBTC_RX_CHAR_UUID)
+            device = await BleStream.create(device, BBTC_SERVICE_UUID, BBTC_TX_CHAR_UUID, BBTC_RX_CHAR_UUID)
     elif args.simulation:
         device = UdpStream("127.0.0.1", int(args.simulation))
 
     return device
+
+
+def handshake_progress_bar(is_concluded: bool):
+    if is_concluded:
+        print('')
+    else:
+        print('.', end='', flush=True)
 
 
 if __name__ == '__main__':

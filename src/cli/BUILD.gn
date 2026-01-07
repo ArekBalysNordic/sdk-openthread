@@ -30,6 +30,8 @@ import("../../etc/gn/openthread.gni")
 openthread_cli_sources = [
   "cli.cpp",
   "cli.hpp",
+  "cli_ba.cpp",
+  "cli_ba.hpp",
   "cli_bbr.cpp",
   "cli_bbr.hpp",
   "cli_br.cpp",
@@ -55,6 +57,8 @@ openthread_cli_sources = [
   "cli_mac_filter.hpp",
   "cli_mdns.cpp",
   "cli_mdns.hpp",
+  "cli_mesh_diag.cpp",
+  "cli_mesh_diag.hpp",
   "cli_network_data.cpp",
   "cli_network_data.hpp",
   "cli_ping.cpp",

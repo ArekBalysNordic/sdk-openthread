@@ -31,8 +31,8 @@
  *   This file includes definitions for managing Multicast Listener Registration feature defined in Thread 1.2.
  */
 
-#ifndef MLR_MANAGER_HPP_
-#define MLR_MANAGER_HPP_
+#ifndef OT_CORE_THREAD_MLR_MANAGER_HPP_
+#define OT_CORE_THREAD_MLR_MANAGER_HPP_
 
 #include "openthread-core-config.h"
 
@@ -54,6 +54,7 @@
 #include "net/netif.hpp"
 #include "thread/child.hpp"
 #include "thread/thread_tlvs.hpp"
+#include "thread/tmf.hpp"
 
 namespace ot {
 
@@ -68,12 +69,10 @@ namespace ot {
  * @defgroup core-mlr Mlr
  *
  * @}
- *
  */
 
 /**
  * Implements MLR management.
- *
  */
 class MlrManager : public InstanceLocator, private NonCopyable
 {
@@ -87,7 +86,6 @@ public:
      * Initializes the object.
      *
      * @param[in]  aInstance     A reference to the OpenThread instance.
-     *
      */
     explicit MlrManager(Instance &aInstance);
 
@@ -96,7 +94,6 @@ public:
      *
      * @param[in]  aState   The state or state change of Primary Backbone Router.
      * @param[in]  aConfig  The Primary Backbone Router service.
-     *
      */
     void HandleBackboneRouterPrimaryUpdate(BackboneRouter::Leader::State aState, const BackboneRouter::Config &aConfig);
 
@@ -110,7 +107,6 @@ public:
      *
      * @param[in]  aChild                       A reference to the child information.
      * @param[in]  aOldMlrRegisteredAddresses   Array of the Child's previously registered IPv6 addresses.
-     *
      */
     void UpdateProxiedSubscriptions(Child &aChild, const MlrAddressArray &aOldMlrRegisteredAddresses);
 #endif
@@ -136,7 +132,6 @@ public:
      * @retval kErrorInvalidState  If the device was not in a valid state to send MLR.req (e.g. Commissioner not
      *                             started, Primary Backbone Router not found).
      * @retval kErrorNoBufs        If insufficient message buffers available.
-     *
      */
     Error RegisterMulticastListeners(const Ip6::Address *aAddresses,
                                      uint8_t             aAddressNum,
@@ -165,7 +160,7 @@ private:
     static void  HandleMlrResponse(void                *aContext,
                                    otMessage           *aMessage,
                                    const otMessageInfo *aMessageInfo,
-                                   Error                aResult);
+                                   otError              aResult);
     void         HandleMlrResponse(Coap::Message *aMessage, const Ip6::MessageInfo *aMessageInfo, Error aResult);
     static Error ParseMlrResponse(Error          aResult,
                                   Coap::Message *aMessage,
@@ -173,11 +168,7 @@ private:
                                   AddressArray  &aFailedAddresses);
 
 #if OPENTHREAD_FTD && OPENTHREAD_CONFIG_COMMISSIONER_ENABLE
-    static void HandleRegisterResponse(void                *aContext,
-                                       otMessage           *aMessage,
-                                       const otMessageInfo *aMessageInfo,
-                                       Error                aResult);
-    void        HandleRegisterResponse(otMessage *aMessage, const otMessageInfo *aMessageInfo, Error aResult);
+    DeclareTmfResponseHandlerIn(MlrManager, HandleRegisterResponse);
 #endif
 
 #if OPENTHREAD_CONFIG_MLR_ENABLE
@@ -222,4 +213,4 @@ private:
 } // namespace ot
 
 #endif // OPENTHREAD_CONFIG_MLR_ENABLE || (OPENTHREAD_FTD && OPENTHREAD_CONFIG_TMF_PROXY_MLR_ENABLE)
-#endif // MLR_MANAGER_HPP_
+#endif // OT_CORE_THREAD_MLR_MANAGER_HPP_

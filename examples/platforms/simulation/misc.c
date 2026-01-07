@@ -113,3 +113,16 @@ otPlatMcuPowerState otPlatGetMcuPowerState(otInstance *aInstance)
 #if OPENTHREAD_CONFIG_PLATFORM_LOG_CRASH_DUMP_ENABLE
 otError otPlatLogCrashDump(void) { return OT_ERROR_NONE; }
 #endif
+
+void otPlatAssertFail(const char *aFilename, int aLineNumber)
+{
+    otLogCritPlat("assert failed at %s:%d", aFilename, aLineNumber);
+
+    // For debug build, use assert to generate a core dump
+    assert(false);
+    exit(1);
+}
+
+#if OPENTHREAD_CONFIG_OTNS_ENABLE && !OPENTHREAD_SIMULATION_VIRTUAL_TIME
+void otPlatOtnsStatus(const char *aStatus) { OT_UNUSED_VARIABLE(aStatus); }
+#endif

@@ -35,17 +35,7 @@
 
 #if OPENTHREAD_CONFIG_SRP_SERVER_ENABLE
 
-#include "common/as_core_type.hpp"
-#include "common/const_cast.hpp"
-#include "common/locator_getters.hpp"
-#include "common/log.hpp"
-#include "common/new.hpp"
-#include "common/num_utils.hpp"
-#include "common/random.hpp"
-#include "common/string.hpp"
 #include "instance/instance.hpp"
-#include "net/dns_types.hpp"
-#include "thread/thread_netif.hpp"
 
 namespace ot {
 namespace Srp {
@@ -99,6 +89,9 @@ Server::Server(Instance &aInstance)
 #if OPENTHREAD_CONFIG_BORDER_ROUTING_ENABLE
     , mAutoEnable(false)
 #endif
+#if OPENTHREAD_CONFIG_SRP_SERVER_FAST_START_MODE_ENABLE
+    , mFastStartMode(false)
+#endif
 {
     IgnoreError(SetDomain(kDefaultDomain));
 }
@@ -134,6 +127,9 @@ void Server::SetEnabled(bool aEnabled)
 #if OPENTHREAD_CONFIG_BORDER_ROUTING_ENABLE
     mAutoEnable = false;
 #endif
+#if OPENTHREAD_CONFIG_SRP_SERVER_FAST_START_MODE_ENABLE
+    DisableFastStartMode();
+#endif
 
     if (aEnabled)
     {
@@ -148,23 +144,43 @@ void Server::SetEnabled(bool aEnabled)
 void Server::Enable(void)
 {
     VerifyOrExit(mState == kStateDisabled);
+
+#if OPENTHREAD_CONFIG_SRP_SERVER_FAST_START_MODE_ENABLE
+    if (mFastStartMode)
+    {
+        mPrevAddressMode = mAddressMode;
+        IgnoreError(SetAddressMode(kAddressModeUnicastForceAdd));
+    }
+#endif
+
     mState = kStateStopped;
 
     // Request publishing of "DNS/SRP Address Service" entry in the
     // Thread Network Data based of `mAddressMode`. Then wait for
-    // callback `HandleNetDataPublisherEntryChange()` from the
+    // callback `HandleNetDataPublisherEvent()` from the
     // `Publisher` to start the SRP server.
+    //
+    // For `kAddressModeUnicastForceAdd`, directly add the entry
+    // in the Network Data and start.
 
     switch (mAddressMode)
     {
     case kAddressModeUnicast:
         SelectPort();
-        Get<NetworkData::Publisher>().PublishDnsSrpServiceUnicast(mPort);
+        Get<NetworkData::Publisher>().PublishDnsSrpServiceUnicast(mPort, kSrpVersion);
         break;
 
     case kAddressModeAnycast:
         mPort = kAnycastAddressModePort;
-        Get<NetworkData::Publisher>().PublishDnsSrpServiceAnycast(mAnycastSequenceNumber);
+        Get<NetworkData::Publisher>().PublishDnsSrpServiceAnycast(mAnycastSequenceNumber, kSrpVersion);
+        break;
+
+    case kAddressModeUnicastForceAdd:
+        SelectPort();
+        SuccessOrExit(Get<NetworkData::Service::Manager>().AddDnsSrpUnicastServiceWithAddrInServerData(
+            Get<Mle::Mle>().GetMeshLocalEid(), mPort, kSrpVersion));
+        Get<NetworkData::Notifier>().HandleServerDataUpdated();
+        Start();
         break;
     }
 
@@ -175,9 +191,29 @@ exit:
 void Server::Disable(void)
 {
     VerifyOrExit(mState != kStateDisabled);
-    Get<NetworkData::Publisher>().UnpublishDnsSrpService();
+
+    switch (mAddressMode)
+    {
+    case kAddressModeUnicast:
+    case kAddressModeAnycast:
+        Get<NetworkData::Publisher>().UnpublishDnsSrpService();
+        break;
+
+    case kAddressModeUnicastForceAdd:
+        IgnoreError(Get<NetworkData::Service::Manager>().RemoveDnsSrpUnicastServiceWithAddrInServerData());
+        Get<NetworkData::Notifier>().HandleServerDataUpdated();
+        break;
+    }
+
     Stop();
     mState = kStateDisabled;
+
+#if OPENTHREAD_CONFIG_SRP_SERVER_FAST_START_MODE_ENABLE
+    if (mFastStartMode)
+    {
+        IgnoreError(SetAddressMode(mPrevAddressMode));
+    }
+#endif
 
 exit:
     return;
@@ -186,6 +222,10 @@ exit:
 #if OPENTHREAD_CONFIG_BORDER_ROUTING_ENABLE
 void Server::SetAutoEnableMode(bool aEnabled)
 {
+#if OPENTHREAD_CONFIG_SRP_SERVER_FAST_START_MODE_ENABLE
+    DisableFastStartMode();
+#endif
+
     VerifyOrExit(mAutoEnable != aEnabled);
     mAutoEnable = aEnabled;
 
@@ -195,6 +235,107 @@ exit:
     return;
 }
 #endif
+
+#if OPENTHREAD_CONFIG_SRP_SERVER_FAST_START_MODE_ENABLE
+Error Server::EnableFastStartMode(void)
+{
+    Error error = kErrorNone;
+
+    VerifyOrExit(!mFastStartMode);
+
+    VerifyOrExit(!Get<Mle::Mle>().IsAttached(), error = kErrorInvalidState);
+    VerifyOrExit(mState == kStateDisabled, error = kErrorInvalidState);
+#if OPENTHREAD_CONFIG_BORDER_ROUTING_ENABLE
+    VerifyOrExit(!mAutoEnable, error = kErrorInvalidState);
+#endif
+
+    mFastStartMode = true;
+    LogInfo("FastStartMode enabled");
+
+exit:
+    return error;
+}
+
+void Server::DisableFastStartMode(void)
+{
+    VerifyOrExit(mFastStartMode);
+
+    Disable();
+    mFastStartMode = false;
+    LogInfo("FastStartMode disabled");
+
+exit:
+    return;
+}
+
+void Server::HandleNotifierEvents(Events aEvents)
+{
+    VerifyOrExit(mFastStartMode);
+
+    if (mState == kStateDisabled)
+    {
+        VerifyOrExit(aEvents.ContainsAny(kEventThreadRoleChanged | kEventThreadNetdataChanged));
+        VerifyOrExit(Get<Mle::Mle>().IsAttached());
+
+        if (!NetDataContainsOtherSrpServers())
+        {
+            LogInfo("FastStartMode - No SRP server in NetData");
+            Enable();
+        }
+    }
+    else
+    {
+        VerifyOrExit(aEvents.Contains(kEventThreadNetdataChanged));
+
+        if (NetDataContainsOtherSrpServers())
+        {
+            LogInfo("FastStartMode - New SRP server entry in NetData");
+            Disable();
+        }
+    }
+
+exit:
+    return;
+}
+
+bool Server::NetDataContainsOtherSrpServers(void) const
+{
+    bool                                    contains = false;
+    NetworkData::Service::DnsSrpAnycastInfo anycastInfo;
+    NetworkData::Service::DnsSrpUnicastInfo unicastInfo;
+    NetworkData::Service::Iterator          iterator(GetInstance());
+
+    if (Get<NetworkData::Service::Manager>().FindPreferredDnsSrpAnycastInfo(anycastInfo) == kErrorNone)
+    {
+        contains = true;
+        ExitNow();
+    }
+
+    iterator.Reset();
+
+    if (iterator.GetNextDnsSrpUnicastInfo(NetworkData::Service::kAddrInServiceData, unicastInfo) == kErrorNone)
+    {
+        contains = true;
+        ExitNow();
+    }
+
+    iterator.Reset();
+
+    while (iterator.GetNextDnsSrpUnicastInfo(NetworkData::Service::kAddrInServerData, unicastInfo) == kErrorNone)
+    {
+        if (!Get<Mle::Mle>().HasRloc16(unicastInfo.mRloc16) &&
+            Get<Mle::Mle>().GetMeshLocalEid() != unicastInfo.mSockAddr.GetAddress())
+        {
+            contains = true;
+            ExitNow();
+        }
+    }
+
+exit:
+    return contains;
+}
+
+#endif // OPENTHREAD_CONFIG_SRP_SERVER_FAST_START_MODE_ENABLE
 
 Server::TtlConfig::TtlConfig(void)
 {
@@ -295,7 +436,7 @@ Error Server::SetDomain(const char *aDomain)
 
         memcpy(buf, aDomain, length);
         buf[length]     = '.';
-        buf[length + 1] = '\0';
+        buf[length + 1] = kNullChar;
 
         error = mDomain.Set(buf);
     }
@@ -366,15 +507,17 @@ bool Server::HasNameConflictsWith(Host &aHost) const
         ExitNow(hasConflicts = true);
     }
 
-    for (const Service &service : aHost.mServices)
+    for (const Host &host : mHosts)
     {
-        // Check on all hosts for a matching service with the same
-        // instance name and if found, verify that it has the same
-        // key.
-
-        for (const Host &host : mHosts)
+        if (aHost.mKey == host.mKey)
         {
-            if (host.HasService(service.GetInstanceName()) && (aHost.mKey != host.mKey))
+            continue;
+        }
+
+        // Verify that no allocated services have the same instance name.
+        for (const Service &service : aHost.mServices)
+        {
+            if (host.HasService(service.GetInstanceName()))
             {
                 LogWarn("Name conflict: service name %s has already been allocated", service.GetInstanceName());
                 ExitNow(hasConflicts = true);
@@ -561,13 +704,14 @@ void Server::CommitSrpUpdate(Error                    aError,
     }
 
 #if OPENTHREAD_CONFIG_SRP_SERVER_PORT_SWITCH_ENABLE
-    if (!mHasRegisteredAnyService && (mAddressMode == kAddressModeUnicast))
+    if (!mHasRegisteredAnyService &&
+        ((mAddressMode == kAddressModeUnicast) || (mAddressMode == kAddressModeUnicastForceAdd)))
     {
         Settings::SrpServerInfo info;
 
         mHasRegisteredAnyService = true;
         info.SetPort(GetSocket().mSockName.mPort);
-        IgnoreError(Get<Settings>().Save(info));
+        Get<Settings>().Save(info);
     }
 #endif
 
@@ -579,7 +723,7 @@ void Server::CommitSrpUpdate(Error                    aError,
 exit:
     if (aMessageInfo != nullptr)
     {
-        if (aError == kErrorNone && !(grantedLease == hostLease && grantedKeyLease == hostKeyLease))
+        if (aError == kErrorNone && (grantedLease != hostLease || grantedKeyLease != hostKeyLease))
         {
             SendResponse(aDnsHeader, grantedLease, grantedKeyLease, useShortLease, *aMessageInfo);
         }
@@ -668,8 +812,8 @@ Error Server::PrepareSocket(void)
 #endif
 
     VerifyOrExit(!mSocket.IsOpen());
-    SuccessOrExit(error = mSocket.Open());
-    error = mSocket.Bind(mPort, Ip6::kNetifThread);
+    SuccessOrExit(error = mSocket.Open(Ip6::kNetifThreadInternal));
+    error = mSocket.Bind(mPort);
 
 exit:
     if (error != kErrorNone)
@@ -788,8 +932,7 @@ const Server::UpdateMetadata *Server::FindOutstandingUpdate(const MessageMetadat
     for (const UpdateMetadata &update : mOutstandingUpdates)
     {
         if (aMessageMetadata.mDnsHeader.GetMessageId() == update.GetDnsHeader().GetMessageId() &&
-            aMessageMetadata.mMessageInfo->GetPeerAddr() == update.GetMessageInfo().GetPeerAddr() &&
-            aMessageMetadata.mMessageInfo->GetPeerPort() == update.GetMessageInfo().GetPeerPort())
+            aMessageMetadata.mMessageInfo->HasSamePeerAddrAndPort(update.GetMessageInfo()))
         {
             ExitNow(ret = &update);
         }
@@ -1724,15 +1867,14 @@ void Server::HandleOutstandingUpdatesTimer(void)
 
 const char *Server::AddressModeToString(AddressMode aMode)
 {
-    static const char *const kAddressModeStrings[] = {
-        "unicast", // (0) kAddressModeUnicast
-        "anycast", // (1) kAddressModeAnycast
-    };
+#define AddressModeMapList(_)         \
+    _(kAddressModeUnicast, "unicast") \
+    _(kAddressModeAnycast, "anycast") \
+    _(kAddressModeUnicastForceAdd, "unicast-force-add")
 
-    static_assert(kAddressModeUnicast == 0, "kAddressModeUnicast value is incorrect");
-    static_assert(kAddressModeAnycast == 1, "kAddressModeAnycast value is incorrect");
+    DefineEnumStringArray(AddressModeMapList);
 
-    return kAddressModeStrings[aMode];
+    return kStrings[aMode];
 }
 
 void Server::UpdateResponseCounters(Dns::UpdateHeader::Response aResponseCode)
@@ -1931,23 +2073,16 @@ bool Server::Service::HasSubTypeServiceName(const char *aSubTypeServiceName) con
 #if OT_SHOULD_LOG_AT(OT_LOG_LEVEL_INFO)
 void Server::Service::Log(Action aAction) const
 {
-    static const char *const kActionStrings[] = {
-        "Add new",                   // (0) kAddNew
-        "Update existing",           // (1) kUpdateExisting
-        "Keep unchanged",            // (2) kKeepUnchanged
-        "Remove but retain name of", // (3) kRemoveButRetainName
-        "Fully remove",              // (4) kFullyRemove
-        "LEASE expired for",         // (5) kLeaseExpired
-        "KEY LEASE expired for",     // (6) kKeyLeaseExpired
-    };
+#define ActionMapList(_)                                 \
+    _(kAddNew, "Add new")                                \
+    _(kUpdateExisting, "Update existing")                \
+    _(kKeepUnchanged, "Keep unchanged")                  \
+    _(kRemoveButRetainName, "Remove but retain name of") \
+    _(kFullyRemove, "Fully remove")                      \
+    _(kLeaseExpired, "LEASE expired for")                \
+    _(kKeyLeaseExpired, "KEY LEASE expired for")
 
-    static_assert(0 == kAddNew, "kAddNew value is incorrect");
-    static_assert(1 == kUpdateExisting, "kUpdateExisting value is incorrect");
-    static_assert(2 == kKeepUnchanged, "kKeepUnchanged value is incorrect");
-    static_assert(3 == kRemoveButRetainName, "kRemoveButRetainName value is incorrect");
-    static_assert(4 == kFullyRemove, "kFullyRemove value is incorrect");
-    static_assert(5 == kLeaseExpired, "kLeaseExpired value is incorrect");
-    static_assert(6 == kKeyLeaseExpired, "kKeyLeaseExpired value is incorrect");
+    DefineEnumStringArray(ActionMapList);
 
     // We only log if the `Service` is marked as committed. This
     // ensures that temporary `Service` entries associated with a
@@ -1956,7 +2091,7 @@ void Server::Service::Log(Action aAction) const
 
     if (mIsCommitted)
     {
-        LogInfo("%s service '%s'", kActionStrings[aAction], GetInstanceName());
+        LogInfo("%s service '%s'", kStrings[aAction], GetInstanceName());
 
         for (const Heap::String &subType : mSubTypes)
         {

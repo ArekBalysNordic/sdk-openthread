@@ -34,6 +34,7 @@
 #include <openthread-system.h>
 #include <openthread/cli.h>
 #include <openthread/logging.h>
+#include <openthread/platform/debug_uart.h>
 
 #include "cli/cli_config.h"
 #include "common/code_utils.hpp"
@@ -49,7 +50,6 @@
  * @def OPENTHREAD_CONFIG_CLI_UART_RX_BUFFER_SIZE
  *
  * The size of CLI UART RX buffer in bytes.
- *
  */
 #ifndef OPENTHREAD_CONFIG_CLI_UART_RX_BUFFER_SIZE
 #if OPENTHREAD_CONFIG_REFERENCE_DEVICE_ENABLE
@@ -63,7 +63,6 @@
  * @def OPENTHREAD_CONFIG_CLI_TX_BUFFER_SIZE
  *
  * The size of CLI message buffer in bytes.
- *
  */
 #ifndef OPENTHREAD_CONFIG_CLI_UART_TX_BUFFER_SIZE
 #define OPENTHREAD_CONFIG_CLI_UART_TX_BUFFER_SIZE 1024
@@ -106,7 +105,6 @@ uint16_t sSendLength;
 /**
  * Macro to acquire an exclusive lock of uart cli output
  * Default implementation does nothing
- *
  */
 #ifndef OT_CLI_UART_OUTPUT_LOCK
 #define OT_CLI_UART_OUTPUT_LOCK() \
@@ -118,7 +116,6 @@ uint16_t sSendLength;
 /**
  * Macro to release the exclusive lock of uart cli output
  * Default implementation does nothing
- *
  */
 #ifndef OT_CLI_UART_OUTPUT_UNLOCK
 #define OT_CLI_UART_OUTPUT_UNLOCK() \
@@ -225,7 +222,7 @@ static void Send(void)
     {
 #if OPENTHREAD_CONFIG_ENABLE_DEBUG_UART
         /* duplicate the output to the debug uart */
-        otSysDebugUart_write_bytes(reinterpret_cast<uint8_t *>(sTxBuffer + sTxHead), sSendLength);
+        otPlatDebugUart_write_bytes(reinterpret_cast<uint8_t *>(sTxBuffer + sTxHead), sSendLength);
 #endif
         IgnoreError(otPlatUartSend(reinterpret_cast<uint8_t *>(sTxBuffer + sTxHead), sSendLength));
     }

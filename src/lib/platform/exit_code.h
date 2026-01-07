@@ -31,8 +31,8 @@
  *   This file contains header for exit code utilities.
  */
 
-#ifndef PLATFORM_EXIT_CODE_H_
-#define PLATFORM_EXIT_CODE_H_
+#ifndef OT_LIB_PLATFORM_EXIT_CODE_H_
+#define OT_LIB_PLATFORM_EXIT_CODE_H_
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -45,7 +45,6 @@ extern "C" {
 
 /**
  * Represents exit codes used when OpenThread exits.
- *
  */
 enum
 {
@@ -89,6 +88,10 @@ enum
      */
     OT_EXIT_INVALID_STATE = 7,
 
+    /**
+     * RCP chip reset is not able to be done by OT
+     */
+    OT_EXIT_RCP_RESET_REQUIRED = 8,
 };
 
 /**
@@ -97,7 +100,6 @@ enum
  * @param[in]  aExitCode  An exit code.
  *
  * @returns  A string representation of an exit code.
- *
  */
 const char *otExitCodeToString(uint8_t aExitCode);
 
@@ -107,12 +109,14 @@ const char *otExitCodeToString(uint8_t aExitCode);
  *
  * @param[in]   aCondition  The condition to verify
  * @param[in]   aExitCode   The exit code.
- *
  */
 #define VerifyOrDie(aCondition, aExitCode)                                                         \
     do                                                                                             \
     {                                                                                              \
-        if (!(aCondition))                                                                         \
+        if (aCondition)                                                                            \
+        {                                                                                          \
+        }                                                                                          \
+        else                                                                                       \
         {                                                                                          \
             const char *start = strrchr(__FILE__, '/');                                            \
             OT_UNUSED_VARIABLE(start);                                                             \
@@ -127,7 +131,6 @@ const char *otExitCodeToString(uint8_t aExitCode);
  * and both records exit status and terminates the program if the error code is unsuccessful.
  *
  * @param[in]  aError  An error code to be evaluated against OT_ERROR_NONE.
- *
  */
 #define SuccessOrDie(aError)             \
     VerifyOrDie(aError == OT_ERROR_NONE, \
@@ -137,7 +140,6 @@ const char *otExitCodeToString(uint8_t aExitCode);
  * Unconditionally both records exit status and terminates the program.
  *
  * @param[in]   aExitCode   The exit code.
- *
  */
 #define DieNow(aExitCode) VerifyOrDie(false, aExitCode)
 
@@ -146,7 +148,6 @@ const char *otExitCodeToString(uint8_t aExitCode);
  *
  * @param[in]   aMessage    The exit message.
  * @param[in]   aExitCode   The exit code.
- *
  */
 #define DieNowWithMessage(aMessage, aExitCode)                                                 \
     do                                                                                         \
@@ -160,4 +161,4 @@ const char *otExitCodeToString(uint8_t aExitCode);
 }
 #endif
 
-#endif // PLATFORM_EXIT_CODE_H_
+#endif // OT_LIB_PLATFORM_EXIT_CODE_H_

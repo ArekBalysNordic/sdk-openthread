@@ -31,8 +31,8 @@
  *   This file includes definitions for responding to Announce Requests.
  */
 
-#ifndef ANNOUNCE_BEGIN_CLIENT_HPP_
-#define ANNOUNCE_BEGIN_CLIENT_HPP_
+#ifndef OT_CORE_MESHCOP_ANNOUNCE_BEGIN_CLIENT_HPP_
+#define OT_CORE_MESHCOP_ANNOUNCE_BEGIN_CLIENT_HPP_
 
 #include "openthread-core-config.h"
 
@@ -47,14 +47,12 @@ namespace ot {
 
 /**
  * Implements handling Announce Begin Requests.
- *
  */
 class AnnounceBeginClient : public InstanceLocator
 {
 public:
     /**
      * Initializes the object.
-     *
      */
     explicit AnnounceBeginClient(Instance &aInstance);
 
@@ -68,7 +66,6 @@ public:
      *
      * @retval kErrorNone    Successfully enqueued the Announce Begin message.
      * @retval kErrorNoBufs  Insufficient buffers to generate a Announce Begin message.
-     *
      */
     Error SendRequest(uint32_t aChannelMask, uint8_t aCount, uint16_t aPeriod, const Ip6::Address &aAddress);
 };
@@ -81,4 +78,4 @@ public:
 
 #endif // OPENTHREAD_CONFIG_COMMISSIONER_ENABLE && OPENTHREAD_FTD
 
-#endif // ANNOUNCE_BEGIN_CLIENT_HPP_
+#endif // OT_CORE_MESHCOP_ANNOUNCE_BEGIN_CLIENT_HPP_

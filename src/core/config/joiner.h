@@ -29,11 +29,10 @@
 /**
  * @file
  *   This file includes compile-time configurations for the Joiner.
- *
  */
 
-#ifndef CONFIG_JOINER_H_
-#define CONFIG_JOINER_H_
+#ifndef OT_CORE_CONFIG_JOINER_H_
+#define OT_CORE_CONFIG_JOINER_H_
 
 /**
  * @addtogroup config-joiner
@@ -42,14 +41,12 @@
  *   This module includes configuration variables for the Joiner.
  *
  * @{
- *
  */
 
 /**
  * @def OPENTHREAD_CONFIG_JOINER_ENABLE
  *
  * Define to 1 to enable Joiner support.
- *
  */
 #ifndef OPENTHREAD_CONFIG_JOINER_ENABLE
 #define OPENTHREAD_CONFIG_JOINER_ENABLE 0
@@ -59,7 +56,6 @@
  * @def OPENTHREAD_CONFIG_JOINER_MAX_CANDIDATES
  *
  * The maximum number of Joiner Router entries that can be queued by the Joiner.
- *
  */
 #ifndef OPENTHREAD_CONFIG_JOINER_MAX_CANDIDATES
 #define OPENTHREAD_CONFIG_JOINER_MAX_CANDIDATES 2
@@ -67,7 +63,6 @@
 
 /**
  * @}
- *
  */
 
-#endif // CONFIG_JOINER_H_
+#endif // OT_CORE_CONFIG_JOINER_H_

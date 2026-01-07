@@ -48,7 +48,8 @@
 #include <openthread/backbone_router_ftd.h>
 #include <openthread/logging.h>
 
-#include "core/common/arg_macros.hpp"
+#include "utils.hpp"
+#include "common/arg_macros.hpp"
 #include "core/common/debug.hpp"
 
 namespace ot {
@@ -86,6 +87,7 @@ void MulticastRoutingManager::TearDown(void)
 
     otBackboneRouterSetMulticastListenerCallback(gInstance, nullptr, nullptr);
     Mainloop::Manager::Get().Remove(*this);
+    FinalizeMulticastRouterSock();
 }
 
 void MulticastRoutingManager::HandleBackboneMulticastListenerEvent(void                                  *aContext,
@@ -186,24 +188,23 @@ exit:
     return found;
 }
 
-void MulticastRoutingManager::Update(otSysMainloopContext &aContext)
+void MulticastRoutingManager::Update(Mainloop::Context &aContext)
 {
     VerifyOrExit(IsEnabled());
 
-    FD_SET(mMulticastRouterSock, &aContext.mReadFdSet);
-    aContext.mMaxFd = OT_MAX(aContext.mMaxFd, mMulticastRouterSock);
+    Mainloop::AddToReadFdSet(mMulticastRouterSock, aContext);
 
 exit:
     return;
 }
 
-void MulticastRoutingManager::Process(const otSysMainloopContext &aContext)
+void MulticastRoutingManager::Process(const Mainloop::Context &aContext)
 {
     VerifyOrExit(IsEnabled());
 
     ExpireMulticastForwardingCache();
 
-    if (FD_ISSET(mMulticastRouterSock, &aContext.mReadFdSet))
+    if (Mainloop::IsFdReadable(mMulticastRouterSock, aContext))
     {
         ProcessMulticastRouterMessages();
     }

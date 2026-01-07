@@ -46,7 +46,7 @@ permissions:
 jobs:
 
   backbone-router:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     env:
       REFERENCE_DEVICE: 1
       VIRTUAL_TIME: 0
@@ -61,19 +61,21 @@ jobs:
       # packet verification can't handle it because of the order of context ID
       # of OMR prefix and Domain prefix is not deterministic.
       BORDER_ROUTING: 0
+      DISCOVERY_PROXY: 0
     steps:
-    - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       with:
-        submodules: true
+        submodules: recursive
     - name: Build OTBR Docker
       env:
-        GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+        PR_BODY: "${{ github.event.pull_request.body }}"
       run: |
         ./script/test build_otbr_docker
     - name: Bootstrap
       run: |
         sudo rm /etc/apt/sources.list.d/* && sudo apt-get update
-        sudo apt-get --no-install-recommends install -y python3-setuptools python3-wheel ninja-build socat lcov
+        sudo apt-get --no-install-recommends install -y python3-setuptools python3-wheel ninja-build lcov
+        sudo bash script/install_socat
         python3 -m pip install -r tests/scripts/thread-cert/requirements.txt
     - name: Build
       run: |
@@ -86,12 +88,12 @@ jobs:
         export CI_ENV="$(bash <(curl -s https://codecov.io/env)) -e GITHUB_ACTIONS -e COVERAGE"
         echo "CI_ENV=${CI_ENV}"
         sudo -E ./script/test cert_suite ./tests/scripts/thread-cert/backbone/*.py || (sudo chmod a+r ot_testing/* && false)
-    - uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
+    - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
       with:
         name: cov-thread-1-3-backbone-docker
         path: /tmp/coverage/
         retention-days: 1
-    - uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
+    - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
       if: ${{ failure() }}
       with:
         name: thread-1-3-backbone-results
@@ -104,14 +106,14 @@ jobs:
     - name: Generate Coverage
       run: |
         ./script/test generate_coverage gcc
-    - uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
+    - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
       with:
         name: cov-thread-1-3-backbone
         path: tmp/coverage.info
         retention-days: 1
 
   thread-border-router:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
@@ -142,20 +144,14 @@ jobs:
             description: "LowPower"
           - otbr_mdns: "mDNSResponder"
             otbr_trel: 0
-            cert_scripts: ./tests/scripts/thread-cert/border_router/nat64/*.py
+            cert_scripts: ./tests/scripts/thread-cert/border_router/internet/*.py
             packet_verification: 1
             nat64: 1
-            description: "nat64"
+            description: "internet access"
           - otbr_mdns: "avahi"
             otbr_trel: 0
             cert_scripts: ./tests/scripts/thread-cert/border_router/*.py
             packet_verification: 1
-            nat64: 0
-            description: ""
-          - otbr_mdns: "avahi"
-            otbr_trel: 1
-            cert_scripts: ./tests/scripts/thread-cert/border_router/*.py
-            packet_verification: 2
             nat64: 0
             description: ""
           - otbr_mdns: "avahi"
@@ -181,21 +177,24 @@ jobs:
       NAT64: ${{ matrix.nat64 }}
       MAX_JOBS: 3
     steps:
-    - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      with:
+        submodules: recursive
     - name: Set firewall environment variables
       if: ${{ matrix.use_core_firewall }}
       run: |
         echo "FIREWALL=0" >> $GITHUB_ENV
     - name: Build OTBR Docker
       env:
-        GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+        PR_BODY: "${{ github.event.pull_request.body }}"
         TREL: ${{ matrix.otbr_trel }}
       run: |
         ./script/test build_otbr_docker
     - name: Bootstrap
       run: |
         sudo rm /etc/apt/sources.list.d/* && sudo apt-get update
-        sudo apt-get --no-install-recommends install -y python3-setuptools python3-wheel ninja-build socat lcov
+        sudo apt-get --no-install-recommends install -y python3-setuptools python3-wheel ninja-build lcov
+        sudo bash script/install_socat
         python3 -m pip install -r tests/scripts/thread-cert/requirements.txt
     - name: Build
       run: |
@@ -208,12 +207,12 @@ jobs:
         export CI_ENV="$(bash <(curl -s https://codecov.io/env)) -e GITHUB_ACTIONS -e COVERAGE"
         echo "CI_ENV=${CI_ENV}"
         sudo -E ./script/test cert_suite ${{ matrix.cert_scripts }} || (sudo chmod a+r ot_testing/* && false)
-    - uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
+    - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
       with:
         name: cov-br-docker-${{ matrix.description }}-${{ matrix.otbr_mdns }}-${{matrix.otbr_trel}}
         path: /tmp/coverage/
         retention-days: 1
-    - uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
+    - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
       if: ${{ failure() }}
       with:
         name: br-results-${{ matrix.description }}-${{ matrix.otbr_mdns }}-${{matrix.otbr_trel}}
@@ -226,7 +225,7 @@ jobs:
     - name: Generate Coverage
       run: |
         ./script/test generate_coverage gcc
-    - uses: actions/upload-artifact@834a144ee995460fba8ed112a2fc961b36a5ec5a # v4.3.6
+    - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
       with:
         name: cov-br-${{ matrix.description }}-${{ matrix.otbr_mdns }}-${{matrix.otbr_trel}}
         path: tmp/coverage.info
@@ -236,15 +235,15 @@ jobs:
     needs:
     - backbone-router
     - thread-border-router
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
-    - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       with:
-        submodules: true
+        submodules: recursive
     - name: Bootstrap
       run: |
         sudo apt-get --no-install-recommends install -y lcov
-    - uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e # v4.1.7
+    - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
       with:
         path: coverage/
         pattern: cov-*
@@ -255,7 +254,7 @@ jobs:
         script/test combine_coverage
     - name: Upload Coverage
       continue-on-error: true
-      uses: codecov/codecov-action@e28ff129e5465c2c0dcc6f003fc735cb6ae0c673 # v4.5.0
+      uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5.5.1
       env:
         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
       with:

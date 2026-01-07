@@ -34,9 +34,12 @@
 #include "mle_types.hpp"
 
 #include "common/array.hpp"
+#include "common/bit_utils.hpp"
 #include "common/code_utils.hpp"
+#include "common/enum_to_string.hpp"
 #include "common/message.hpp"
 #include "common/random.hpp"
+#include "utils/static_counter.hpp"
 
 namespace ot {
 namespace Mle {
@@ -99,10 +102,14 @@ uint8_t DeviceProperties::CalculateLeaderWeight(void) const
         kPowerExternalUnstableInc, // (3) kPowerSupplyExternalUnstable
     };
 
-    static_assert(0 == kPowerSupplyBattery, "kPowerSupplyBattery value is incorrect");
-    static_assert(1 == kPowerSupplyExternal, "kPowerSupplyExternal value is incorrect");
-    static_assert(2 == kPowerSupplyExternalStable, "kPowerSupplyExternalStable value is incorrect");
-    static_assert(3 == kPowerSupplyExternalUnstable, "kPowerSupplyExternalUnstable value is incorrect");
+    struct EnumCheck
+    {
+        InitEnumValidatorCounter();
+        ValidateNextEnum(kPowerSupplyBattery);
+        ValidateNextEnum(kPowerSupplyExternal);
+        ValidateNextEnum(kPowerSupplyExternalStable);
+        ValidateNextEnum(kPowerSupplyExternalUnstable);
+    };
 
     uint8_t     weight      = kBaseWeight;
     PowerSupply powerSupply = MapEnum(mPowerSupply);
@@ -187,21 +194,16 @@ bool RxChallenge::operator==(const TxChallenge &aTxChallenge) const
 
 const char *RoleToString(DeviceRole aRole)
 {
-    static const char *const kRoleStrings[] = {
-        "disabled", // (0) kRoleDisabled
-        "detached", // (1) kRoleDetached
-        "child",    // (2) kRoleChild
-        "router",   // (3) kRoleRouter
-        "leader",   // (4) kRoleLeader
-    };
+#define RoleMapList(_)           \
+    _(kRoleDisabled, "disabled") \
+    _(kRoleDetached, "detached") \
+    _(kRoleChild, "child")       \
+    _(kRoleRouter, "router")     \
+    _(kRoleLeader, "leader")
 
-    static_assert(kRoleDisabled == 0, "kRoleDisabled value is incorrect");
-    static_assert(kRoleDetached == 1, "kRoleDetached value is incorrect");
-    static_assert(kRoleChild == 2, "kRoleChild value is incorrect");
-    static_assert(kRoleRouter == 3, "kRoleRouter value is incorrect");
-    static_assert(kRoleLeader == 4, "kRoleLeader value is incorrect");
+    DefineEnumStringArray(RoleMapList);
 
-    return (aRole < GetArrayLength(kRoleStrings)) ? kRoleStrings[aRole] : "invalid";
+    return (aRole < GetArrayLength(kStrings)) ? kStrings[aRole] : "invalid";
 }
 
 } // namespace Mle

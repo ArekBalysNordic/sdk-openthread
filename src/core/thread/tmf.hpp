@@ -38,6 +38,7 @@
 
 #include "coap/coap.hpp"
 #include "coap/coap_secure.hpp"
+#include "common/as_core_type.hpp"
 #include "common/locator.hpp"
 
 namespace ot {
@@ -52,10 +53,55 @@ namespace Tmf {
  *
  * @param[in] Type      The `Type` in which the TMF handler is declared.
  * @param[in] kUri      The `Uri` which is handled.
- *
  */
 #define DeclareTmfHandler(Type, kUri) \
     template <> void Type::HandleTmf<kUri>(Coap::Message & aMessage, const Ip6::MessageInfo &aMessageInfo)
+
+/**
+ * Declares a TMF/CoAP response handler method in a given class `Type`.
+ *
+ * This macro simplifies the definition of a TMF/CoAP response handler. It defines a `static` handler method which
+ * can be used as a callback function pointer (`Coap::ResponseHandler`). The `static` handler acts as a wrapper,
+ * casting the `aContext` pointer back to a `Type` object and invoking its member method with the same `MethodName`.
+ *
+ * This macro is intended for cases where the response handler method does not require the `aMessageInfo`.
+ *
+ * The `Type` class MUST implement the following member method which will be invoked by the `static` handler:
+ *
+ *   void MethodName(Coap::Message *aMessage, Error aResult);
+ *
+ * @param[in] Type        The class `Type` in which the TMF response handler is declared.
+ * @param[in] MethodName  The handler method name.
+ */
+#define DeclareTmfResponseHandlerIn(Type, MethodName)                                                               \
+    static void MethodName(void *aContext, otMessage *aMessage, const otMessageInfo *aMessageInfo, otError aResult) \
+    {                                                                                                               \
+        OT_UNUSED_VARIABLE(aMessageInfo);                                                                           \
+        static_cast<Type *>(aContext)->MethodName(AsCoapMessagePtr(aMessage), aResult);                             \
+    }                                                                                                               \
+                                                                                                                    \
+    void MethodName(Coap::Message *aMessage, Error aResult)
+
+/**
+ * Declares a TMF/CoAP response handler with access to `MessageInfo` in a given class `Type`.
+ *
+ * This macro is a variant of `DeclareTmfResponseHandlerIn` and is intended for cases where the response handler needs
+ * access to the full parameters including `Ip6::MessageInfo`.
+ *
+ * The `Type` class MUST implement the following member method which will be invoked by the `static` handler:
+ *
+ *   void MethodName(Coap::Message *aMessage, const Ip6::MessageInfo *aMessageInfo, Error aResult);
+ *
+ * @param[in] Type        The class `Type` in which the TMF response handler is declared.
+ * @param[in] MethodName  The handler method name.
+ */
+#define DeclareTmfResponseHandlerFullParamIn(Type, MethodName)                                                       \
+    static void MethodName(void *aContext, otMessage *aMessage, const otMessageInfo *aMessageInfo, otError aResult)  \
+    {                                                                                                                \
+        static_cast<Type *>(aContext)->MethodName(AsCoapMessagePtr(aMessage), AsCoreTypePtr(aMessageInfo), aResult); \
+    }                                                                                                                \
+                                                                                                                     \
+    void MethodName(Coap::Message *aMessage, const Ip6::MessageInfo *aMessageInfo, Error aResult)
 
 constexpr uint16_t kUdpPort = 61631; ///< TMF UDP Port
 
@@ -65,7 +111,6 @@ typedef Coap::Message Message; ///< A TMF message.
  * Represents message information for a TMF message.
  *
  * This is sub-class of `Ip6::MessageInfo` intended for use when sending TMF messages.
- *
  */
 class MessageInfo : public InstanceLocator, public Ip6::MessageInfo
 {
@@ -76,7 +121,6 @@ public:
      * The peer port is set to `Tmf::kUdpPort` and all other properties are cleared (set to zero).
      *
      * @param[in] aInstance    The OpenThread instance.
-     *
      */
     explicit MessageInfo(Instance &aInstance)
         : InstanceLocator(aInstance)
@@ -86,32 +130,27 @@ public:
 
     /**
      * Sets the local socket port to TMF port.
-     *
      */
     void SetSockPortToTmf(void) { SetSockPort(kUdpPort); }
 
     /**
      * Sets the local socket address to mesh-local RLOC address.
-     *
      */
     void SetSockAddrToRloc(void);
 
     /**
      * Sets the local socket address to RLOC address and the peer socket address to leader ALOC.
-     *
      */
     void SetSockAddrToRlocPeerAddrToLeaderAloc(void);
 
     /**
      * Sets the local socket address to RLOC address and the peer socket address to leader RLOC.
-q     *
      */
     void SetSockAddrToRlocPeerAddrToLeaderRloc(void);
 
     /**
      * Sets the local socket address to RLOC address and the peer socket address to realm-local all
      * routers multicast address.
-     *
      */
     void SetSockAddrToRlocPeerAddrToRealmLocalAllRoutersMulticast(void);
 
@@ -120,7 +159,6 @@ q     *
      * a given RLOC16.
      *
      * @param[in] aRloc16     The RLOC16 to use for peer address.
-     *
      */
     void SetSockAddrToRlocPeerAddrTo(uint16_t aRloc16);
 
@@ -128,14 +166,12 @@ q     *
      * Sets the local socket address to RLOC address and the peer socket address to a given address.
      *
      * @param[in] aPeerAddress  The peer address.
-     *
      */
     void SetSockAddrToRlocPeerAddrTo(const Ip6::Address &aPeerAddress);
 };
 
 /**
  * Implements functionality of the Thread TMF agent.
- *
  */
 class Agent : public Coap::Coap
 {
@@ -144,7 +180,6 @@ public:
      * Initializes the object.
      *
      * @param[in] aInstance      A reference to the OpenThread instance.
-     *
      */
     explicit Agent(Instance &aInstance);
 
@@ -153,7 +188,6 @@ public:
      *
      * @retval kErrorNone    Successfully started the CoAP service.
      * @retval kErrorFailed  Failed to start the TMF agent.
-     *
      */
     Error Start(void);
 
@@ -172,7 +206,6 @@ public:
      *
      * @retval TRUE   if TMF addressing rules are met.
      * @retval FALSE  if TMF addressing rules are not met.
-     *
      */
     bool IsTmfMessage(const Ip6::Address &aSourceAddress, const Ip6::Address &aDestAddress, uint16_t aDestPort) const;
 
@@ -182,7 +215,6 @@ public:
      * @param[in] aPriority  The message priority to convert.
      *
      * @returns The DSCP value corresponding to @p aPriority.
-     *
      */
     static uint8_t PriorityToDscp(Message::Priority aPriority);
 
@@ -192,7 +224,6 @@ public:
      * @param[in] aDscp      The IPv6 header DSCP value in a TMF message.
      *
      * @returns The message priority corresponding to the @p aDscp.
-     *
      */
     static Message::Priority DscpToPriority(uint8_t aDscp);
 
@@ -212,25 +243,28 @@ private:
 
 /**
  * Implements functionality of the secure TMF agent.
- *
  */
-class SecureAgent : public Coap::CoapSecure
+class SecureAgent : public Coap::Dtls::Transport, public Coap::SecureSession
 {
 public:
     /**
      * Initializes the object.
      *
      * @param[in] aInstance      A reference to the OpenThread instance.
-     *
      */
     explicit SecureAgent(Instance &aInstance);
 
 private:
+    static MeshCoP::SecureSession *HandleDtlsAccept(void *aContext, const Ip6::MessageInfo &aMessageInfo);
+    Coap::SecureSession           *HandleDtlsAccept(void);
+
+#if OPENTHREAD_FTD && OPENTHREAD_CONFIG_COMMISSIONER_ENABLE
     static bool HandleResource(CoapBase               &aCoapBase,
                                const char             *aUriPath,
                                Message                &aMessage,
                                const Ip6::MessageInfo &aMessageInfo);
     bool        HandleResource(const char *aUriPath, Message &aMessage, const Ip6::MessageInfo &aMessageInfo);
+#endif
 };
 
 #endif
@@ -238,4 +272,4 @@ private:
 } // namespace Tmf
 } // namespace ot
 
-#endif //  OT_CORE_THREAD_TMF_HPP_
+#endif // OT_CORE_THREAD_TMF_HPP_
