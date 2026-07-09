@@ -321,6 +321,9 @@ void IndirectSender::UpdateIndirectMessage(Child &aChild)
 
         aChild.GetMacAddress(childAddress);
         Get<MeshForwarder>().LogMessage(MeshForwarder::kMessagePrepareIndirect, *message, kErrorNone, &childAddress);
+#if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
+        OT_UNUSED_VARIABLE(Get<MeshForwarder>().SelectPhyForDestination(childAddress));
+#endif
     }
 }
 

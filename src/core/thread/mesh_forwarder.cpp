@@ -37,6 +37,7 @@
 #include "common/debug.hpp"
 #include "common/encoding.hpp"
 #include "common/locator_getters.hpp"
+#include "common/log.hpp"
 #include "common/message.hpp"
 #include "common/random.hpp"
 #include "common/time_ticker.hpp"
@@ -46,6 +47,9 @@
 #include "net/netif.hpp"
 #include "net/tcp6.hpp"
 #include "net/udp6.hpp"
+#if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
+#include "radio/alternate_phy.hpp"
+#endif
 #include "radio/radio.hpp"
 #include "thread/mle.hpp"
 #include "thread/mle_router.hpp"
@@ -639,6 +643,9 @@ Message *MeshForwarder::PrepareNextDirectTransmission(void)
 #if OPENTHREAD_CONFIG_TX_QUEUE_STATISTICS_ENABLE
             mTxQueueStats.UpdateFor(*curMessage);
 #endif
+#if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
+            OT_UNUSED_VARIABLE(SelectPhyForDestination(mMacAddrs.mDestination));
+#endif
             ExitNow();
 
 #if OPENTHREAD_FTD
@@ -769,6 +776,27 @@ void MeshForwarder::GetMacDestinationAddress(const Ip6::Address &aIp6Addr, Mac::
         aIp6Addr.GetIid().ConvertToMacAddress(aMacAddr);
     }
 }
+
+#if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
+MeshForwarder::PhySelection MeshForwarder::SelectPhyForDestination(const Mac::Address &aMacDest)
+{
+    PhySelection    selection = kLegacyPhy;
+    const Neighbor *neighbor;
+
+    VerifyOrExit(!aMacDest.IsBroadcast() && !aMacDest.IsNone());
+
+    neighbor = Get<NeighborTable>().FindNeighbor(aMacDest);
+    VerifyOrExit(neighbor != nullptr);
+
+    if (neighbor->GetAlternatePhyInfo().Contains(AlternatePhy::Tl3Gfsk::kPhyId))
+    {
+        LogDebg("AltPhy: neighbor 0x%04x supports TL3 GFSK", neighbor->GetRloc16());
+    }
+
+exit:
+    return selection;
+}
+#endif // OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
 
 Mac::TxFrame *MeshForwarder::HandleFrameRequest(Mac::TxFrames &aTxFrames)
 {

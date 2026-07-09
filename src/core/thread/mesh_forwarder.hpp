@@ -552,6 +552,17 @@ private:
     uint16_t PrepareDataFrameWithNoMeshHeader(Mac::TxFrame &aFrame, Message &aMessage, const Mac::Addresses &aMacAddrs);
     void     PrepareEmptyFrame(Mac::TxFrame &aFrame, const Mac::Address &aMacDest, bool aAckRequest);
 
+#if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
+    // Identifies which PHY a frame should be transmitted on.
+    enum PhySelection : uint8_t
+    {
+        kLegacyPhy,           ///< Primary IEEE 802.15.4 PHY.
+        kAlternatePhyTl3Gfsk, ///< TL3 2 Mbps GFSK Alternate PHY.
+    };
+
+    PhySelection SelectPhyForDestination(const Mac::Address &aMacDest);
+#endif
+
 #if OPENTHREAD_CONFIG_DELAY_AWARE_QUEUE_MANAGEMENT_ENABLE
     Error UpdateEcnOrDrop(Message &aMessage, bool aPreparingToSend);
     Error RemoveAgedMessages(void);

@@ -359,6 +359,18 @@
 #endif
 
 /**
+ * @def OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
+ *
+ * Enable advertisement and discovery of Alternate PHY (HDR) capabilities via MLE.
+ *
+ * When enabled, the device advertises its supported Alternate PHYs.
+ *
+ */
+#ifndef OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
+#define OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE 0
+#endif
+
+/**
  * @}
  *
  */
