@@ -53,6 +53,9 @@ void MeshForwarder::SendMessage(OwnedPtr<Message> aMessagePtr)
     message.SetOffset(0);
     message.SetDatagramTag(0);
     message.SetTimestampToNow();
+#if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
+    TagAlternatePhyEligibility(message);
+#endif
     mSendQueue.Enqueue(message);
 
     switch (message.GetType())

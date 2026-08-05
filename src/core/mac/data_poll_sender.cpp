@@ -566,9 +566,6 @@ Mac::TxFrame *DataPollSender::PrepareDataRequest(Mac::TxFrames &aTxFrames)
     frame = &aTxFrames.GetTxFrame();
 #endif
 
-#if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
-    OT_UNUSED_VARIABLE(Get<MeshForwarder>().SelectPhyForDestination(addresses.mDestination));
-#endif
 
     if (addresses.mDestination.IsExtended())
     {

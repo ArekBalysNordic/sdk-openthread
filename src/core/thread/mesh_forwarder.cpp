@@ -643,9 +643,6 @@ Message *MeshForwarder::PrepareNextDirectTransmission(void)
 #if OPENTHREAD_CONFIG_TX_QUEUE_STATISTICS_ENABLE
             mTxQueueStats.UpdateFor(*curMessage);
 #endif
-#if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
-            OT_UNUSED_VARIABLE(SelectPhyForDestination(mMacAddrs.mDestination));
-#endif
             ExitNow();
 
 #if OPENTHREAD_FTD
@@ -778,23 +775,73 @@ void MeshForwarder::GetMacDestinationAddress(const Ip6::Address &aIp6Addr, Mac::
 }
 
 #if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
-MeshForwarder::PhySelection MeshForwarder::SelectPhyForDestination(const Mac::Address &aMacDest)
+void MeshForwarder::TagAlternatePhyEligibility(Message &aMessage)
 {
-    PhySelection    selection = kLegacyPhy;
-    const Neighbor *neighbor;
+    bool allowed = false;
+
+    switch (aMessage.GetType())
+    {
+    case Message::kTypeIp6:
+        allowed = !aMessage.IsSubTypeMle();
+        break;
+
+    case Message::kType6lowpan:
+        allowed = true;
+        break;
+
+    default:
+        break;
+    }
+
+    aMessage.SetAlternatePhyAllowed(allowed);
+}
+
+const AlternatePhy::Capability *MeshForwarder::SelectPhyForDestination(const Mac::Address &aMacDest) const
+{
+    const AlternatePhy::Capability *capability = nullptr;
+    const Neighbor                 *neighbor;
 
     VerifyOrExit(!aMacDest.IsBroadcast() && !aMacDest.IsNone());
 
     neighbor = Get<NeighborTable>().FindNeighbor(aMacDest);
     VerifyOrExit(neighbor != nullptr);
 
-    if (neighbor->GetAlternatePhyInfo().Contains(AlternatePhy::Tl3Gfsk::kPhyId))
-    {
-        LogDebg("AltPhy: neighbor 0x%04x supports TL3 GFSK", neighbor->GetRloc16());
-    }
+    capability = neighbor->GetAlternatePhyInfo().Find(AlternatePhy::Tl3Gfsk::kPhyId);
 
 exit:
-    return selection;
+    return capability;
+}
+
+void MeshForwarder::ApplyAlternatePhyForFrame(Mac::TxFrame       &aFrame,
+                                              const Message      &aMessage,
+                                              const Mac::Address &aMacDest) const
+{
+    const AlternatePhy::Capability *capability;
+    otAlternatePhyTxInfo           &txInfo = aFrame.mInfo.mTxInfo.mAlternatePhy;
+
+    VerifyOrExit(aMessage.IsAlternatePhyAllowed());
+
+    capability = SelectPhyForDestination(aMacDest);
+    VerifyOrExit(capability != nullptr);
+
+    txInfo.mPhyId   = capability->mPhyId;
+    txInfo.mChannel = OT_ALTERNATE_PHY_CHANNEL_SAME;
+
+    txInfo.mRequiresDaps = (capability->mFlags & OT_ALTERNATE_PHY_TL3_GFSK_FLAG_CONCURRENT_LISTENING) == 0;
+
+    for (uint8_t index = 0; index < AlternatePhy::kParameterCount; index++)
+    {
+        txInfo.mParams.mParameters[index] = capability->mParameters[index];
+    }
+
+    aFrame.mInfo.mTxInfo.mIsAlternatePhy = true;
+
+    LogDebg("AltPhy: TX on PHY %u to %s, daps:%s, settling:%uus, aifs:%uus", txInfo.mPhyId,
+            aMacDest.ToString().AsCString(), ToYesNo(txInfo.mRequiresDaps), txInfo.mParams.mTl3Gfsk.mSettlingDelay,
+            txInfo.mParams.mTl3Gfsk.mAifs);
+
+exit:
+    return;
 }
 #endif // OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
 
@@ -882,6 +929,10 @@ Mac::TxFrame *MeshForwarder::HandleFrameRequest(Mac::TxFrames &aTxFrames)
         mMessageNextOffset = mSendMessage->GetLength();
         ExitNow(frame = nullptr);
     }
+
+#if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
+    ApplyAlternatePhyForFrame(*frame, *mSendMessage, mMacAddrs.mDestination);
+#endif
 
     frame->SetIsARetransmission(false);
 

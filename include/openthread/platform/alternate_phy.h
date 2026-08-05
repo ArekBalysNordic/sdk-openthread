@@ -34,6 +34,7 @@
 #ifndef OPENTHREAD_PLATFORM_ALTERNATE_PHY_H_
 #define OPENTHREAD_PLATFORM_ALTERNATE_PHY_H_
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include <openthread/instance.h>
@@ -117,6 +118,49 @@ typedef struct otAlternatePhyCapability
     uint8_t mParameters[OT_ALTERNATE_PHY_PARAMETER_COUNT]; ///< PHY-specific parameter values.
     uint8_t mFlags;                                        ///< PHY-specific capability flags.
 } otAlternatePhyCapability;
+
+/** Thread MAC Command identifier for Dynamic Alternate PHY Switch (DAPS). */
+#define OT_THREAD_MAC_COMMAND_ID 0x34
+
+/** DAPS Sub-ID within the Thread MAC Command payload. */
+#define OT_DAPS_SUB_ID 0x00
+
+/**
+ * Indicates that an Alternate PHY transmission stays on the current Primary Link channel.
+ *
+ */
+#define OT_ALTERNATE_PHY_CHANNEL_SAME 0
+
+/**
+ * Parameters the TL3 2 Mbps GFSK PHY needs in order to transmit a frame.
+ *
+ */
+typedef struct otAlternatePhyTl3GfskTxInfo
+{
+    uint8_t mSettlingDelay; ///< TL3_SETTLING_DELAY in microseconds, as advertised by the receiver.
+    uint8_t mAifs;          ///< TL3_AIFS in microseconds, as advertised by the receiver.
+} otAlternatePhyTl3GfskTxInfo;
+
+/**
+ * Describes the Alternate PHY selected for a single transmission.
+ *
+ */
+typedef struct otAlternatePhyTxInfo
+{
+    uint8_t mPhyId;        ///< Selected Alternate PHY identifier (`OT_ALTERNATE_PHY_ID_*`).
+    uint8_t mChannel;      ///< Target channel, or `OT_ALTERNATE_PHY_CHANNEL_SAME` to keep the Primary Link channel.
+    bool    mRequiresDaps; ///< Send a DAPS frame on the Primary Link before this frame.
+
+    /**
+     * PHY-specific transmission parameters.
+     *
+     */
+    union
+    {
+        otAlternatePhyTl3GfskTxInfo mTl3Gfsk;
+        uint8_t                     mParameters[OT_ALTERNATE_PHY_PARAMETER_COUNT];
+    } mParams;
+} otAlternatePhyTxInfo;
 
 /**
  * Gets the set of Alternate PHYs supported by the platform.

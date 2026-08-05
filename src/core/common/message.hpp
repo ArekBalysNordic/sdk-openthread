@@ -202,6 +202,9 @@ protected:
         bool mResolvingAddress : 1;    // Whether the message is pending an address query resolution.
         bool mAllowLookbackToHost : 1; // Whether the message is allowed to be looped back to host.
         bool mIsDstPanIdBroadcast : 1; // Whether the dest PAN ID is broadcast.
+#if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
+        bool mAltPhyAllowed : 1; // Whether an Alternate PHY may be used to transmit this message.
+#endif
 #if OPENTHREAD_CONFIG_MULTI_RADIO
         bool mIsRadioTypeSet : 1; // Whether the radio type is set.
 #endif
@@ -1198,6 +1201,25 @@ public:
      *
      */
     bool IsDstPanIdBroadcast(void) const { return GetMetadata().mIsDstPanIdBroadcast; }
+
+#if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
+    /**
+     * Indicates whether an Alternate PHY may be used to transmit this message.
+     *
+     * @retval TRUE   An Alternate PHY may be considered for this message based on the destination.
+     * @retval FALSE  This message must always be sent on the Primary Link.
+     *
+     */
+    bool IsAlternatePhyAllowed(void) const { return GetMetadata().mAltPhyAllowed; }
+
+    /**
+     * Sets whether an Alternate PHY may be used to transmit this message.
+     *
+     * @param[in] aAllowed  TRUE if an Alternate PHY may be considered, FALSE otherwise.
+     *
+     */
+    void SetAlternatePhyAllowed(bool aAllowed) { GetMetadata().mAltPhyAllowed = aAllowed; }
+#endif
 
     /**
      * Returns the IEEE 802.15.4 Channel to use for transmission.

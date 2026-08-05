@@ -35,6 +35,7 @@
 
 #include <stdio.h>
 
+#include "common/clearable.hpp"
 #include "common/code_utils.hpp"
 #include "common/debug.hpp"
 #include "common/frame_builder.hpp"
@@ -57,6 +58,11 @@ void Frame::InitMacHeader(Type             aType,
 {
     uint16_t     fcf;
     FrameBuilder builder;
+
+#if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
+    mInfo.mTxInfo.mIsAlternatePhy = false;
+    ClearAllBytes(mInfo.mTxInfo.mAlternatePhy);
+#endif
 
     fcf = static_cast<uint16_t>(aType) | static_cast<uint16_t>(aVersion);
 

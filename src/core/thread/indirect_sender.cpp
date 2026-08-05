@@ -321,9 +321,6 @@ void IndirectSender::UpdateIndirectMessage(Child &aChild)
 
         aChild.GetMacAddress(childAddress);
         Get<MeshForwarder>().LogMessage(MeshForwarder::kMessagePrepareIndirect, *message, kErrorNone, &childAddress);
-#if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
-        OT_UNUSED_VARIABLE(Get<MeshForwarder>().SelectPhyForDestination(childAddress));
-#endif
     }
 }
 
@@ -400,6 +397,15 @@ uint16_t IndirectSender::PrepareDataFrame(Mac::TxFrame &aFrame, Child &aChild, M
     {
         aFrame.SetFramePending(true);
     }
+
+#if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
+#if OPENTHREAD_CONFIG_MAC_CSL_TRANSMITTER_ENABLE
+    if (!aChild.IsCslSynchronized())
+#endif
+    {
+        Get<MeshForwarder>().ApplyAlternatePhyForFrame(aFrame, aMessage, macAddrs.mDestination);
+    }
+#endif
 
     return nextOffset;
 }
