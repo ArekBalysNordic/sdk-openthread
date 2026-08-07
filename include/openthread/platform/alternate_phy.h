@@ -75,7 +75,7 @@ extern "C" {
  * Number of parameter octets in an Alternate PHY capability.
  *
  */
-#define OT_ALTERNATE_PHY_PARAMETER_COUNT 2
+#define OT_ALTERNATE_PHY_PARAMETER_COUNT 4
 
 /**
  * Identifies a parameter octet in an Alternate PHY capability.
@@ -85,6 +85,8 @@ typedef enum otAlternatePhyParameter
 {
     OT_ALTERNATE_PHY_PARAMETER_0 = 0,
     OT_ALTERNATE_PHY_PARAMETER_1 = 1,
+    OT_ALTERNATE_PHY_PARAMETER_2 = 2,
+    OT_ALTERNATE_PHY_PARAMETER_3 = 3,
 } otAlternatePhyParameter;
 
 /**
@@ -95,7 +97,15 @@ typedef enum otAlternatePhyTl3GfskParameter
 {
     OT_ALTERNATE_PHY_TL3_GFSK_PARAMETER_SETTLING_DELAY = OT_ALTERNATE_PHY_PARAMETER_0,
     OT_ALTERNATE_PHY_TL3_GFSK_PARAMETER_AIFS           = OT_ALTERNATE_PHY_PARAMETER_1,
+    OT_ALTERNATE_PHY_TL3_GFSK_PARAMETER_MAX_PSDU_LSB   = OT_ALTERNATE_PHY_PARAMETER_2,
+    OT_ALTERNATE_PHY_TL3_GFSK_PARAMETER_MAX_PSDU_MSB   = OT_ALTERNATE_PHY_PARAMETER_3,
 } otAlternatePhyTl3GfskParameter;
+
+/** Minimum TL3 max PSDU (including FCS). */
+#define OT_ALTERNATE_PHY_TL3_GFSK_MAX_PSDU_MIN 127
+
+/** Maximum TL3 max PSDU (including FCS). */
+#define OT_ALTERNATE_PHY_TL3_GFSK_MAX_PSDU_MAX 255
 
 /**
  * Defines the flags for the TL3 2 Mbps GFSK PHY.
@@ -115,8 +125,8 @@ typedef enum otAlternatePhyTl3GfskFlag
 typedef struct otAlternatePhyCapability
 {
     uint8_t mPhyId;                                        ///< PHY Identifier.
-    uint8_t mParameters[OT_ALTERNATE_PHY_PARAMETER_COUNT]; ///< PHY-specific parameter values.
     uint8_t mFlags;                                        ///< PHY-specific capability flags.
+    uint8_t mParameters[OT_ALTERNATE_PHY_PARAMETER_COUNT]; ///< PHY-specific parameter values.
 } otAlternatePhyCapability;
 
 /** Thread MAC Command identifier for Dynamic Alternate PHY Switch (DAPS). */
@@ -160,6 +170,8 @@ typedef struct otAlternatePhyTxInfo
         otAlternatePhyTl3GfskTxInfo mTl3Gfsk;
         uint8_t                     mParameters[OT_ALTERNATE_PHY_PARAMETER_COUNT];
     } mParams;
+
+    uint16_t mMaxPsdu; ///< Maximum PSDU for this transmission, including FCS.
 } otAlternatePhyTxInfo;
 
 /**

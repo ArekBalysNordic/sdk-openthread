@@ -398,15 +398,6 @@ uint16_t IndirectSender::PrepareDataFrame(Mac::TxFrame &aFrame, Child &aChild, M
         aFrame.SetFramePending(true);
     }
 
-#if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
-#if OPENTHREAD_CONFIG_MAC_CSL_TRANSMITTER_ENABLE
-    if (!aChild.IsCslSynchronized())
-#endif
-    {
-        Get<MeshForwarder>().ApplyAlternatePhyForFrame(aFrame, aMessage, macAddrs.mDestination);
-    }
-#endif
-
     return nextOffset;
 }
 

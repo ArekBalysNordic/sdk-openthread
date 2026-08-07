@@ -118,8 +118,12 @@ static bool destIsBroadcast(const otDapsAddrs *aAddrs)
  *
  * On success, @p aPayloadOffset is the offset of the first octet after the addressing fields, i.e.
  * the start of the MAC payload for an unsecured frame.
+ *
+ * @retval OT_ERROR_NONE       Addressing fields parsed.
+ * @retval OT_ERROR_NOT_FOUND  The frame type cannot carry an Alternate PHY exchange.
+ * @retval OT_ERROR_PARSE      The addressing fields are truncated or unusable.
  */
-static bool macAddrsParse(const uint8_t *aMpdu, uint8_t aMpduLen, otDapsAddrs *aAddrs, uint8_t *aPayloadOffset)
+static otError macAddrsParse(const uint8_t *aMpdu, uint8_t aMpduLen, otDapsAddrs *aAddrs, uint8_t *aPayloadOffset)
 {
     uint16_t fcf;
     uint16_t frameType;
@@ -128,7 +132,7 @@ static bool macAddrsParse(const uint8_t *aMpdu, uint8_t aMpduLen, otDapsAddrs *a
     /* Every offset below is validated against the payload budget, which excludes the FCS. */
     if (aMpduLen < FCF_SIZE + FCS_SIZE)
     {
-        return false;
+        return OT_ERROR_NOT_FOUND;
     }
 
     memset(aAddrs, 0, sizeof(*aAddrs));
@@ -139,7 +143,7 @@ static bool macAddrsParse(const uint8_t *aMpdu, uint8_t aMpduLen, otDapsAddrs *a
     frameType = fcf & FCF_FRAME_TYPE_MASK;
     if (frameType != FCF_FRAME_TYPE_DATA && frameType != FCF_FRAME_TYPE_MAC_CMD)
     {
-        return false;
+        return OT_ERROR_NOT_FOUND;
     }
 
     aAddrs->mDstMode = (fcf >> FCF_DST_ADDR_MODE_SHIFT) & FCF_ADDR_MODE_MASK;
@@ -148,7 +152,7 @@ static bool macAddrsParse(const uint8_t *aMpdu, uint8_t aMpduLen, otDapsAddrs *a
     /* An Alternate PHY exchange is unicast in both directions, so both addresses are present. */
     if (aAddrs->mDstMode == OT_DAPS_ADDR_NONE || aAddrs->mSrcMode == OT_DAPS_ADDR_NONE)
     {
-        return false;
+        return OT_ERROR_PARSE;
     }
 
     if ((fcf & FCF_SEQ_NUM_SUPPRESSION) == 0U)
@@ -162,7 +166,7 @@ static bool macAddrsParse(const uint8_t *aMpdu, uint8_t aMpduLen, otDapsAddrs *a
     {
         if (aMpduLen < offset + sizeof(uint16_t) + FCS_SIZE)
         {
-            return false;
+            return OT_ERROR_PARSE;
         }
         aAddrs->mPanId = otEncodingReadUint16Le(&aMpdu[offset]);
         offset += sizeof(uint16_t);
@@ -170,7 +174,7 @@ static bool macAddrsParse(const uint8_t *aMpdu, uint8_t aMpduLen, otDapsAddrs *a
 
     if (aMpduLen < offset + addrSize(aAddrs->mDstMode) + FCS_SIZE)
     {
-        return false;
+        return OT_ERROR_PARSE;
     }
 
     if (aAddrs->mDstMode == OT_DAPS_ADDR_SHORT)
@@ -187,14 +191,14 @@ static bool macAddrsParse(const uint8_t *aMpdu, uint8_t aMpduLen, otDapsAddrs *a
     {
         if (aMpduLen < offset + sizeof(uint16_t) + FCS_SIZE)
         {
-            return false;
+            return OT_ERROR_PARSE;
         }
         offset += sizeof(uint16_t);
     }
 
     if (aMpduLen < offset + addrSize(aAddrs->mSrcMode) + FCS_SIZE)
     {
-        return false;
+        return OT_ERROR_PARSE;
     }
 
     if (aAddrs->mSrcMode == OT_DAPS_ADDR_SHORT)
@@ -212,7 +216,7 @@ static bool macAddrsParse(const uint8_t *aMpdu, uint8_t aMpduLen, otDapsAddrs *a
         *aPayloadOffset = offset;
     }
 
-    return true;
+    return OT_ERROR_NONE;
 }
 
 otError otDapsBuild(const uint8_t *aMpdu,
@@ -224,6 +228,7 @@ otError otDapsBuild(const uint8_t *aMpdu,
                     uint8_t       *aDapsLen)
 {
     otDapsAddrs addrs;
+    otError     error;
     uint8_t     payloadLen;
     uint8_t     frameLen;
     uint16_t    fcf;
@@ -235,16 +240,20 @@ otError otDapsBuild(const uint8_t *aMpdu,
         return OT_ERROR_INVALID_ARGS;
     }
 
-    if (!macAddrsParse(aMpdu, aMpduLen, &addrs, NULL))
+    error = macAddrsParse(aMpdu, aMpduLen, &addrs, NULL);
+    if (error == OT_ERROR_NOT_FOUND)
     {
         return OT_ERROR_PARSE;
+    }
+    else if (error != OT_ERROR_NONE)
+    {
+        return error;
     }
 
     if (destIsBroadcast(&addrs))
     {
         return OT_ERROR_INVALID_ARGS;
     }
-
 
     fcf = FCF_FRAME_TYPE_MAC_CMD | FCF_FRAME_VERSION_2015 | FCF_PAN_ID_COMPRESSION | FCF_SEQ_NUM_SUPPRESSION |
           ((uint16_t)addrs.mDstMode << FCF_DST_ADDR_MODE_SHIFT) |
@@ -306,7 +315,9 @@ otError otDapsBuild(const uint8_t *aMpdu,
     {
         *cursor++ = aPhyId;
         *cursor++ = aChannel;
-    }else if (aPhyId != 0U){
+    }
+    else if (aPhyId != 0U)
+    {
         *cursor++ = aPhyId;
     }
 
@@ -318,92 +329,106 @@ otError otDapsBuild(const uint8_t *aMpdu,
     return OT_ERROR_NONE;
 }
 
-bool otDapsParse(const uint8_t *aMpdu, uint8_t aMpduLen, otDapsInfo *aInfo)
+otError otDapsParse(const uint8_t *aMpdu, uint8_t aMpduLen, otDapsInfo *aInfo)
 {
+    otError  error;
     uint16_t fcf;
     uint8_t  offset;
     uint8_t  payloadLen;
 
     if (aMpdu == NULL || aInfo == NULL)
     {
-        return false;
+        return OT_ERROR_INVALID_ARGS;
     }
 
     memset(aInfo, 0, sizeof(*aInfo));
 
     if (aMpduLen < FCF_SIZE + FCS_SIZE)
     {
-        return false;
+        return OT_ERROR_NOT_FOUND;
     }
 
     fcf = otEncodingReadUint16Le(aMpdu);
 
     if ((fcf & FCF_FRAME_TYPE_MASK) != FCF_FRAME_TYPE_MAC_CMD)
     {
-        return false;
+        return OT_ERROR_NOT_FOUND;
     }
 
     if ((fcf & FCF_FRAME_VERSION_MASK) != FCF_FRAME_VERSION_2015)
     {
-        return false;
+        return OT_ERROR_NOT_FOUND;
     }
 
     if ((fcf & (FCF_PAN_ID_COMPRESSION | FCF_SEQ_NUM_SUPPRESSION)) !=
         (FCF_PAN_ID_COMPRESSION | FCF_SEQ_NUM_SUPPRESSION))
     {
-        return false;
+        return OT_ERROR_NOT_FOUND;
     }
 
     if ((fcf & (FCF_SECURITY_ENABLED | FCF_FRAME_PENDING | FCF_ACK_REQUEST | FCF_IE_PRESENT)) != 0U)
     {
-        return false;
+        return OT_ERROR_NOT_FOUND;
     }
 
-    if (!macAddrsParse(aMpdu, aMpduLen, &aInfo->mAddrs, &offset))
+    error = macAddrsParse(aMpdu, aMpduLen, &aInfo->mAddrs, &offset);
+    if (error != OT_ERROR_NONE)
     {
-        return false;
+        return error;
     }
 
     payloadLen = (uint8_t)(aMpduLen - FCS_SIZE - offset);
 
     /* Command ID and Sub-ID are mandatory; PHY ID and Channel are optional, in that order. */
-    if (payloadLen < 2U || payloadLen > 4U)
+    if (payloadLen < 2U)
     {
-        return false;
+        return OT_ERROR_NOT_FOUND;
     }
 
     if (aMpdu[offset++] != OT_THREAD_MAC_COMMAND_ID)
     {
-        return false;
+        return OT_ERROR_NOT_FOUND;
     }
 
     if (aMpdu[offset++] != OT_DAPS_SUB_ID)
     {
-        return false;
+        return OT_ERROR_NOT_FOUND;
+    }
+
+    if (payloadLen > 4U)
+    {
+        return OT_ERROR_PARSE;
     }
 
     /* An omitted PHY ID is implicitly 0 (TL3 GFSK). */
-    aInfo->mPhyId = (payloadLen >= 3U) ? aMpdu[offset++] : 0U;
+    aInfo->mPhyId   = (payloadLen >= 3U) ? aMpdu[offset++] : 0U;
     aInfo->mChannel = (payloadLen == 4U) ? aMpdu[offset] : OT_ALTERNATE_PHY_CHANNEL_SAME;
 
-    return true;
+    return OT_ERROR_NONE;
 }
 
-bool otDapsIsAddressedTo(const otDapsInfo *aInfo, otShortAddress aShortAddress, const otExtAddress *aExtAddress)
+otError otDapsIsAddressedTo(const otDapsInfo *aInfo, otShortAddress aShortAddress, const otExtAddress *aExtAddress)
 {
     if (aInfo == NULL)
     {
-        return false;
+        return OT_ERROR_INVALID_ARGS;
     }
 
     switch (aInfo->mAddrs.mDstMode)
     {
     case OT_DAPS_ADDR_SHORT:
-        return aInfo->mAddrs.mDstShort == aShortAddress;
+        return (aInfo->mAddrs.mDstShort == aShortAddress) ? OT_ERROR_NONE : OT_ERROR_DESTINATION_ADDRESS_FILTERED;
+
     case OT_DAPS_ADDR_EXTENDED:
-        return aExtAddress != NULL &&
-               memcmp(aInfo->mAddrs.mDstExt, aExtAddress->m8, OT_EXT_ADDRESS_SIZE) == 0;
+        if (aExtAddress == NULL)
+        {
+            return OT_ERROR_INVALID_ARGS;
+        }
+        return (memcmp(aInfo->mAddrs.mDstExt, aExtAddress->m8, OT_EXT_ADDRESS_SIZE) == 0)
+                   ? OT_ERROR_NONE
+                   : OT_ERROR_DESTINATION_ADDRESS_FILTERED;
+
     default:
-        return false;
+        return OT_ERROR_PARSE;
     }
 }

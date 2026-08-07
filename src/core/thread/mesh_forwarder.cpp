@@ -806,6 +806,11 @@ const AlternatePhy::Capability *MeshForwarder::SelectPhyForDestination(const Mac
     neighbor = Get<NeighborTable>().FindNeighbor(aMacDest);
     VerifyOrExit(neighbor != nullptr);
 
+#if OPENTHREAD_FTD && OPENTHREAD_CONFIG_MAC_CSL_TRANSMITTER_ENABLE
+    VerifyOrExit(!Get<ChildTable>().Contains(*neighbor) ||
+                 !static_cast<const Child *>(neighbor)->IsCslSynchronized());
+#endif
+
     capability = neighbor->GetAlternatePhyInfo().Find(AlternatePhy::Tl3Gfsk::kPhyId);
 
 exit:
@@ -834,11 +839,14 @@ void MeshForwarder::ApplyAlternatePhyForFrame(Mac::TxFrame       &aFrame,
         txInfo.mParams.mParameters[index] = capability->mParameters[index];
     }
 
+    txInfo.mMaxPsdu = AlternatePhy::GetMaxPsdu(*capability);
+    VerifyOrExit(txInfo.mMaxPsdu != 0);
+
     aFrame.mInfo.mTxInfo.mIsAlternatePhy = true;
 
-    LogDebg("AltPhy: TX on PHY %u to %s, daps:%s, settling:%uus, aifs:%uus", txInfo.mPhyId,
+    LogDebg("AltPhy: TX on PHY %u to %s, daps:%s, settling:%uus, aifs:%uus, maxPsdu:%u", txInfo.mPhyId,
             aMacDest.ToString().AsCString(), ToYesNo(txInfo.mRequiresDaps), txInfo.mParams.mTl3Gfsk.mSettlingDelay,
-            txInfo.mParams.mTl3Gfsk.mAifs);
+            txInfo.mParams.mTl3Gfsk.mAifs, txInfo.mMaxPsdu);
 
 exit:
     return;
@@ -930,10 +938,6 @@ Mac::TxFrame *MeshForwarder::HandleFrameRequest(Mac::TxFrames &aTxFrames)
         ExitNow(frame = nullptr);
     }
 
-#if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
-    ApplyAlternatePhyForFrame(*frame, *mSendMessage, mMacAddrs.mDestination);
-#endif
-
     frame->SetIsARetransmission(false);
 
 exit:
@@ -961,6 +965,20 @@ void MeshForwarder::PrepareMacHeaders(Mac::TxFrame             &aFrame,
     {
         AppendHeaderIe(aMessage, aFrame);
     }
+#endif
+}
+
+void MeshForwarder::PrepareDataFrameHeader(Mac::TxFrame             &aFrame,
+                                           const Mac::Addresses     &aMacAddrs,
+                                           const Mac::PanIds        &aPanIds,
+                                           Mac::Frame::SecurityLevel aSecurityLevel,
+                                           Mac::Frame::KeyIdMode     aKeyIdMode,
+                                           const Message            &aMessage)
+{
+    PrepareMacHeaders(aFrame, Mac::Frame::kTypeData, aMacAddrs, aPanIds, aSecurityLevel, aKeyIdMode, &aMessage);
+
+#if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
+    ApplyAlternatePhyForFrame(aFrame, aMessage, aMacAddrs.mDestination);
 #endif
 }
 
@@ -1035,7 +1053,7 @@ start:
         break;
     }
 
-    PrepareMacHeaders(aFrame, Mac::Frame::kTypeData, aMacAddrs, panIds, securityLevel, keyIdMode, &aMessage);
+    PrepareDataFrameHeader(aFrame, aMacAddrs, panIds, securityLevel, keyIdMode, aMessage);
 
     frameBuilder.Init(aFrame.GetPayload(), aFrame.GetMaxPayloadLength());
 

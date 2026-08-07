@@ -1301,7 +1301,12 @@ uint16_t Frame::GetMtu(void) const
     {
 #if OPENTHREAD_CONFIG_RADIO_LINK_IEEE_802_15_4_ENABLE
     case kRadioTypeIeee802154:
+#if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
+        mtu = mInfo.mTxInfo.mIsAlternatePhy ? mInfo.mTxInfo.mAlternatePhy.mMaxPsdu
+                                            : static_cast<uint16_t>(OT_RADIO_FRAME_MAX_SIZE);
+#else
         mtu = OT_RADIO_FRAME_MAX_SIZE;
+#endif
         break;
 #endif
 

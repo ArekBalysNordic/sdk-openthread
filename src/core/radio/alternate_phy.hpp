@@ -39,6 +39,7 @@
 #include <openthread/platform/alternate_phy.h>
 
 #include "common/array.hpp"
+#include "common/encoding.hpp"
 
 namespace ot {
 namespace AlternatePhy {
@@ -53,7 +54,51 @@ namespace Tl3Gfsk {
 
 static constexpr PhyId kPhyId = OT_ALTERNATE_PHY_ID_TL3_GFSK;
 
+inline uint16_t GetMaxPsdu(const Capability &aCapability)
+{
+    return LittleEndian::ReadUint16(&aCapability.mParameters[OT_ALTERNATE_PHY_TL3_GFSK_PARAMETER_MAX_PSDU_LSB]);
+}
+
+inline void SetMaxPsdu(Capability &aCapability, uint16_t aMaxPsdu)
+{
+    LittleEndian::WriteUint16(aMaxPsdu, &aCapability.mParameters[OT_ALTERNATE_PHY_TL3_GFSK_PARAMETER_MAX_PSDU_LSB]);
+}
+
+inline bool IsValid(const Capability &aCapability)
+{
+    const uint16_t maxPsdu = GetMaxPsdu(aCapability);
+
+    return (maxPsdu >= OT_ALTERNATE_PHY_TL3_GFSK_MAX_PSDU_MIN) &&
+           (maxPsdu <= OT_ALTERNATE_PHY_TL3_GFSK_MAX_PSDU_MAX);
+}
+
 } // namespace Tl3Gfsk
+
+inline bool IsValid(const Capability &aCapability)
+{
+    switch (aCapability.mPhyId)
+    {
+    case Tl3Gfsk::kPhyId:
+        return Tl3Gfsk::IsValid(aCapability);
+
+    default:
+        return false;
+    }
+}
+
+inline uint16_t GetMaxPsdu(const Capability &aCapability)
+{
+    uint16_t maxPsdu = 0;
+
+    switch (aCapability.mPhyId)
+    {
+    case Tl3Gfsk::kPhyId:
+        maxPsdu = Tl3Gfsk::GetMaxPsdu(aCapability);
+        break;
+    }
+
+    return maxPsdu;
+}
 
 /**
  * Stores a set of Alternate PHY capabilities.

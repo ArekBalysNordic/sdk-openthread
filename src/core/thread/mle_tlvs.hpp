@@ -1318,8 +1318,8 @@ private:
 /**
  * Implements an Alternate PHY Sub-TLV.
  *
- * Each Alternate PHY Sub-TLV describes a single Alternate PHY. The Sub-TLV `Type` field encodes the PHY Identifier (PHY
- * ID), followed by two parameter octets and one flags octet.
+ * Each Alternate PHY Sub-TLV describes a single Alternate PHY. The Sub-TLV `Type` field encodes the PHY Identifier
+ * (PHY ID), followed by a flags octet and PHY-specific parameter octets.
  *
  */
 OT_TOOL_PACKED_BEGIN
@@ -1337,12 +1337,12 @@ public:
         SetType(aCapability.mPhyId);
         SetLength(sizeof(*this) - sizeof(ot::Tlv));
 
+        mFlags = aCapability.mFlags;
+
         for (uint8_t index = 0; index < AlternatePhy::kParameterCount; index++)
         {
             mParameters[index] = aCapability.mParameters[index];
         }
-
-        mFlags = aCapability.mFlags;
     }
 
     /**
@@ -1353,18 +1353,17 @@ public:
     void GetCapability(AlternatePhy::Capability &aCapability) const
     {
         aCapability.mPhyId = GetType();
+        aCapability.mFlags = mFlags;
 
         for (uint8_t index = 0; index < AlternatePhy::kParameterCount; index++)
         {
             aCapability.mParameters[index] = mParameters[index];
         }
-
-        aCapability.mFlags = mFlags;
     }
 
 private:
-    uint8_t mParameters[AlternatePhy::kParameterCount];
     uint8_t mFlags;
+    uint8_t mParameters[AlternatePhy::kParameterCount];
 } OT_TOOL_PACKED_END;
 
 #endif // OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE

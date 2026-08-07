@@ -542,6 +542,12 @@ private:
                                Mac::Frame::SecurityLevel aSecurityLevel,
                                Mac::Frame::KeyIdMode     aKeyIdMode,
                                const Message            *aMessage);
+    void     PrepareDataFrameHeader(Mac::TxFrame             &aFrame,
+                                    const Mac::Addresses     &aMacAddrs,
+                                    const Mac::PanIds        &aPanIds,
+                                    Mac::Frame::SecurityLevel aSecurityLevel,
+                                    Mac::Frame::KeyIdMode     aKeyIdMode,
+                                    const Message            &aMessage);
     uint16_t PrepareDataFrame(Mac::TxFrame         &aFrame,
                               Message              &aMessage,
                               const Mac::Addresses &aMacAddrs,

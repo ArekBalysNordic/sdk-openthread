@@ -340,8 +340,8 @@ void MeshForwarder::SendMesh(Message &aMessage, Mac::TxFrame &aFrame)
 
     panIds.SetBothSourceDestination(Get<Mac::Mac>().GetPanId());
 
-    PrepareMacHeaders(aFrame, Mac::Frame::kTypeData, mMacAddrs, panIds, Mac::Frame::kSecurityEncMic32,
-                      Mac::Frame::kKeyIdMode1, &aMessage);
+    PrepareDataFrameHeader(aFrame, mMacAddrs, panIds, Mac::Frame::kSecurityEncMic32, Mac::Frame::kKeyIdMode1,
+                           aMessage);
 
     // write payload
     OT_ASSERT(aMessage.GetLength() <= aFrame.GetMaxPayloadLength());

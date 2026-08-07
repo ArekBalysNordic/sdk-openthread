@@ -104,24 +104,29 @@ otError otDapsBuild(const uint8_t *aMpdu,
  *
  * @param[in]  aMpdu     Received MPDU (no PHR).
  * @param[in]  aMpduLen  Length of @p aMpdu, including the FCS octets.
- * @param[out] aInfo     Parsed contents, valid only when this returns `true`.
+ * @param[out] aInfo     Parsed contents, valid only on `OT_ERROR_NONE`.
  *
- * @retval true   @p aMpdu is a well-formed DAPS frame.
- * @retval false  @p aMpdu is something else and must be handled normally.
+ * @retval OT_ERROR_NONE          @p aMpdu is a well-formed DAPS frame.
+ * @retval OT_ERROR_NOT_FOUND     @p aMpdu is not a DAPS frame and must be handled normally.
+ * @retval OT_ERROR_PARSE         @p aMpdu claims to be a DAPS frame but is malformed.
+ * @retval OT_ERROR_INVALID_ARGS  @p aMpdu or @p aInfo is NULL.
  */
-bool otDapsParse(const uint8_t *aMpdu, uint8_t aMpduLen, otDapsInfo *aInfo);
+otError otDapsParse(const uint8_t *aMpdu, uint8_t aMpduLen, otDapsInfo *aInfo);
 
 /**
  * Checks whether a parsed DAPS frame is addressed to this device.
  *
  * @param[in] aInfo         Parsed DAPS frame.
  * @param[in] aShortAddress This device's short address.
- * @param[in] aExtAddress   This device's extended address, in over-the-air byte order.
+ * @param[in] aExtAddress   This device's extended address, in over-the-air byte order. May be NULL
+ *                          only when @p aInfo carries a short destination address.
  *
- * @retval true   The DAPS frame targets this device.
- * @retval false  The DAPS frame targets someone else.
+ * @retval OT_ERROR_NONE                           The DAPS frame targets this device.
+ * @retval OT_ERROR_DESTINATION_ADDRESS_FILTERED   The DAPS frame targets someone else.
+ * @retval OT_ERROR_PARSE                          @p aInfo has no usable destination address.
+ * @retval OT_ERROR_INVALID_ARGS                   A required argument is NULL.
  */
-bool otDapsIsAddressedTo(const otDapsInfo *aInfo, otShortAddress aShortAddress, const otExtAddress *aExtAddress);
+otError otDapsIsAddressedTo(const otDapsInfo *aInfo, otShortAddress aShortAddress, const otExtAddress *aExtAddress);
 
 #ifdef __cplusplus
 } // extern "C"
