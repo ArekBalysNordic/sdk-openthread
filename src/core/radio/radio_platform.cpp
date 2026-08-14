@@ -192,6 +192,13 @@ OT_TOOL_WEAK uint8_t otPlatAlternatePhyGetCapabilities(otInstance               
 
     return 0;
 }
+
+OT_TOOL_WEAK uint8_t otPlatAlternatePhyGetPriority(otInstance *aInstance, uint8_t aPhyId)
+{
+    OT_UNUSED_VARIABLE(aInstance);
+
+    return (aPhyId == OT_ALTERNATE_PHY_ID_PRIMARY_LINK) ? 0 : 1;
+}
 #endif
 
 OT_TOOL_WEAK uint32_t otPlatRadioGetSupportedChannelMask(otInstance *aInstance)

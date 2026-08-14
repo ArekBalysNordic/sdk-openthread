@@ -203,7 +203,8 @@ protected:
         bool mAllowLookbackToHost : 1; // Whether the message is allowed to be looped back to host.
         bool mIsDstPanIdBroadcast : 1; // Whether the dest PAN ID is broadcast.
 #if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
-        bool mAltPhyAllowed : 1; // Whether an Alternate PHY may be used to transmit this message.
+        bool mAltPhyAllowed : 1;  // Whether an Alternate PHY may be used to transmit this message.
+        bool mAltPhyFallback : 1; // Whether this message is being retried on the Primary Link.
 #endif
 #if OPENTHREAD_CONFIG_MULTI_RADIO
         bool mIsRadioTypeSet : 1; // Whether the radio type is set.
@@ -1219,6 +1220,24 @@ public:
      *
      */
     void SetAlternatePhyAllowed(bool aAllowed) { GetMetadata().mAltPhyAllowed = aAllowed; }
+
+    /**
+     * Indicates whether an Alternate PHY transmission failed and this message must use the Primary Link.
+     *
+     * @retval TRUE   The message must use the Primary Link.
+     * @retval FALSE  An Alternate PHY may still be selected.
+     *
+     */
+    bool IsAlternatePhyFallback(void) const { return GetMetadata().mAltPhyFallback; }
+
+    /**
+     * Sets whether this message must fall back to the Primary Link.
+     *
+     * @param[in] aFallback  TRUE to force Primary Link fallback, FALSE otherwise.
+     *
+     */
+    void SetAlternatePhyFallback(bool aFallback) { GetMetadata().mAltPhyFallback = aFallback; }
+
 #endif
 
     /**

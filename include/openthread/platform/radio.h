@@ -390,6 +390,7 @@ typedef struct otRadioFrame
             bool mAckedWithSecEnhAck : 1; ///< This indicates if this frame was acknowledged with secured enhance ACK.
 #if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
             bool mIsAlternatePhy : 1; ///< The frame was received using an Alternate PHY.
+            uint8_t mAlternatePhyId;  ///< PHY Identifier when `mIsAlternatePhy` is true (`OT_ALTERNATE_PHY_ID_*`).
 #endif
         } mRxInfo;
     } mInfo;

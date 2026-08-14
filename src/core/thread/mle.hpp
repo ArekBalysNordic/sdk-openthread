@@ -1224,6 +1224,9 @@ private:
         uint8_t     mLinkMargin;
         LeaderData  mLeaderData;
         bool        mIsSingleton;
+#if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
+        bool mHasMatchingAlternatePhy;
+#endif
     };
 
     //- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1333,8 +1336,7 @@ private:
     void       SendParentRequest(ParentRequestType aType);
     Error      SendChildIdRequest(void);
 #if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
-    AlternatePhy::Capabilities GetAlternatePhyCapabilities(void);
-    Error                    ProcessAlternatePhyCapabilityTlv(const Message &aMessage, Neighbor &aNeighbor);
+    Error ProcessAlternatePhyCapabilityTlv(const Message &aMessage, Neighbor &aNeighbor);
 #endif
     Error      GetNextAnnounceChannel(uint8_t &aChannel) const;
     bool       HasMoreChannelsToAnnounce(void) const;

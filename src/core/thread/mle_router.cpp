@@ -3694,8 +3694,11 @@ void MleRouter::FillConnectivityTlv(ConnectivityTlv &aTlv)
     aTlv.SetSedDatagramCount(OPENTHREAD_CONFIG_DEFAULT_SED_DATAGRAM_COUNT);
 
 #if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
-    // Set the APS0 flag after `SetParentPriority()` since it writes the whole flags octet.
-    aTlv.SetAlternatePhySupport(GetAlternatePhyCapabilities().Contains(AlternatePhy::Tl3Gfsk::kPhyId));
+    // Set the APS flags after `SetParentPriority()` since it writes the whole flags octet.
+    for (const AlternatePhy::Capability &capability : AlternatePhy::GetCapabilities(&GetInstance()))
+    {
+        aTlv.SetAlternatePhySupported(capability.mPhyId, true);
+    }
 #endif
 }
 

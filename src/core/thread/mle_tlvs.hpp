@@ -958,27 +958,35 @@ public:
 
 #if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
     /**
-     * Indicates whether the sender advertises support for the TL3 Alternate PHY (PHY ID 0).
+     * Indicates whether the sender advertises support for a given Alternate PHY.
      *
-     * This corresponds to the APS0 (Alternate PHY Support, PHY ID 0) flag defined in the Thread specification,
+     * @param[in] aPhyId  Alternate PHY identifier.
      *
-     * @retval TRUE   The APS0 flag is set.
-     * @retval FALSE  The APS0 flag is not set.
+     * @retval TRUE   The TLV advertises support for @p aPhyId.
+     * @retval FALSE  Otherwise.
      *
      */
-    bool IsAlternatePhySupported(void) const { return (mFlags & kFlagsAlternatePhySupport) != 0; }
+    bool IsAlternatePhySupported(AlternatePhy::PhyId aPhyId) const
+    {
+        uint8_t flag = GetAlternatePhySupportFlag(aPhyId);
+
+        return (mFlags & flag) != 0;
+    }
 
     /**
-     * Sets or clears the APS0 (Alternate PHY Support, PHY ID 0) flag.
+     * Sets or clears the support flag for a given Alternate PHY.
      *
      * The other flag bits are preserved.
      *
+     * @param[in] aPhyId     Alternate PHY identifier.
      * @param[in] aSupported  TRUE to set the flag, FALSE to clear it.
      *
      */
-    void SetAlternatePhySupport(bool aSupported)
+    void SetAlternatePhySupported(AlternatePhy::PhyId aPhyId, bool aSupported)
     {
-        mFlags = aSupported ? (mFlags | kFlagsAlternatePhySupport) : (mFlags & static_cast<uint8_t>(~kFlagsAlternatePhySupport));
+        uint8_t flag = GetAlternatePhySupportFlag(aPhyId);
+
+        mFlags = aSupported ? (mFlags | flag) : (mFlags & static_cast<uint8_t>(~flag));
     }
 #endif
 
@@ -986,7 +994,24 @@ private:
     static constexpr uint8_t kFlagsParentPriorityOffset = 6;
     static constexpr uint8_t kFlagsParentPriorityMask   = (3 << kFlagsParentPriorityOffset);
 #if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
-    static constexpr uint8_t kFlagsAlternatePhySupport = (1 << 0); // APS0 flag (bit 0).
+    static constexpr uint8_t kFlagsAlternatePhySupport0 = (1 << 0); // APS0 flag (bit 0).
+
+    static uint8_t GetAlternatePhySupportFlag(AlternatePhy::PhyId aPhyId)
+    {
+        uint8_t flag = 0;
+
+        switch (aPhyId)
+        {
+        case AlternatePhy::Tl3Gfsk::kPhyId:
+            flag = kFlagsAlternatePhySupport0;
+            break;
+
+        default:
+            break;
+        }
+
+        return flag;
+    }
 #endif
 
     uint8_t  mFlags;

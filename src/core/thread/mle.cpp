@@ -68,6 +68,21 @@ namespace Mle {
 
 RegisterLogModule("Mle");
 
+#if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
+static bool HasMatchingAlternatePhy(const AlternatePhy::Capabilities &aLocal, const ConnectivityTlv &aConnectivity)
+{
+    for (const AlternatePhy::Capability &capability : aLocal)
+    {
+        if (aConnectivity.IsAlternatePhySupported(capability.mPhyId))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+#endif
+
 const otMeshLocalPrefix Mle::kMeshLocalPrefixInit = {
     {0xfd, 0xde, 0xad, 0x00, 0xbe, 0xef, 0x00, 0x00},
 };
@@ -1078,6 +1093,9 @@ void Mle::InitNeighbor(Neighbor &aNeighbor, const RxInfo &aRxInfo)
 {
     aRxInfo.mMessageInfo.GetPeerAddr().GetIid().ConvertToExtAddress(aNeighbor.GetExtAddress());
     aNeighbor.GetLinkInfo().Clear();
+#if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
+    aNeighbor.ClearAlternatePhyLinkStates();
+#endif
     aNeighbor.GetLinkInfo().AddRss(aRxInfo.mMessage.GetAverageRss());
     aNeighbor.ResetLinkFailures();
     aNeighbor.SetLastHeard(TimerMilli::GetNow());
@@ -3047,6 +3065,9 @@ bool Mle::IsBetterParent(uint16_t                aRloc16,
                          const Mac::CslAccuracy &aCslAccuracy)
 {
     int rval;
+#if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
+    AlternatePhy::Capabilities localCapabilities = AlternatePhy::GetCapabilities(&GetInstance());
+#endif
 
     // Mesh Impacting Criteria
     rval = ThreeWayCompare(LinkQualityForLinkMargin(aTwoWayLinkMargin), mParentCandidate.GetTwoWayLinkQuality());
@@ -3093,6 +3114,15 @@ bool Mle::IsBetterParent(uint16_t                aRloc16,
     }
 #else
     OT_UNUSED_VARIABLE(aCslAccuracy);
+#endif
+
+#if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
+    if (!localCapabilities.IsEmpty())
+    {
+        rval = ThreeWayCompare(HasMatchingAlternatePhy(localCapabilities, aConnectivityTlv),
+                               mParentCandidate.mHasMatchingAlternatePhy);
+        VerifyOrExit(rval == 0);
+    }
 #endif
 
     rval = ThreeWayCompare(aTwoWayLinkMargin, mParentCandidate.mLinkMargin);
@@ -3286,6 +3316,10 @@ void Mle::HandleParentResponse(RxInfo &aRxInfo)
     mParentCandidate.mLeaderData       = leaderData;
     mParentCandidate.mIsSingleton      = connectivityTlv.IsSingleton();
     mParentCandidate.mLinkMargin       = twoWayLinkMargin;
+#if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
+    mParentCandidate.mHasMatchingAlternatePhy =
+        HasMatchingAlternatePhy(AlternatePhy::GetCapabilities(&GetInstance()), connectivityTlv);
+#endif
 
 exit:
     LogProcessError(kTypeParentResponse, error);
@@ -4738,24 +4772,13 @@ Error Mle::TxMessage::AppendSupervisionIntervalTlv(uint16_t aInterval)
 }
 
 #if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
-AlternatePhy::Capabilities Mle::GetAlternatePhyCapabilities(void)
-{
-    AlternatePhy::Capabilities capabilities;
-    uint8_t                  count;
-
-    count = otPlatAlternatePhyGetCapabilities(&GetInstance(), capabilities.GetArrayBuffer(), capabilities.GetMaxSize());
-    capabilities.SetLength(Min(count, capabilities.GetMaxSize()));
-
-    return capabilities;
-}
-
 Error Mle::TxMessage::AppendAlternatePhyCapabilityTlv(void)
 {
-    Error                    error        = kErrorNone;
-    AlternatePhy::Capabilities capabilities = Get<Mle>().GetAlternatePhyCapabilities();
-    uint8_t                  length;
-    uint16_t                 startOffset;
-    Tlv                      tlv;
+    Error                      error        = kErrorNone;
+    AlternatePhy::Capabilities capabilities = AlternatePhy::GetCapabilities(&GetInstance());
+    uint8_t                    length;
+    uint16_t                   startOffset;
+    Tlv                        tlv;
 
     VerifyOrExit(!capabilities.IsEmpty());
 

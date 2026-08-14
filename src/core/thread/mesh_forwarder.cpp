@@ -779,6 +779,8 @@ void MeshForwarder::TagAlternatePhyEligibility(Message &aMessage)
 {
     bool allowed = false;
 
+    aMessage.SetAlternatePhyFallback(false);
+
     switch (aMessage.GetType())
     {
     case Message::kTypeIp6:
@@ -799,6 +801,7 @@ void MeshForwarder::TagAlternatePhyEligibility(Message &aMessage)
 const AlternatePhy::Capability *MeshForwarder::SelectPhyForDestination(const Mac::Address &aMacDest) const
 {
     const AlternatePhy::Capability *capability = nullptr;
+    AlternatePhy::Capabilities      localCapabilities;
     const Neighbor                 *neighbor;
 
     VerifyOrExit(!aMacDest.IsBroadcast() && !aMacDest.IsNone());
@@ -811,7 +814,10 @@ const AlternatePhy::Capability *MeshForwarder::SelectPhyForDestination(const Mac
                  !static_cast<const Child *>(neighbor)->IsCslSynchronized());
 #endif
 
-    capability = neighbor->GetAlternatePhyInfo().Find(AlternatePhy::Tl3Gfsk::kPhyId);
+    localCapabilities = AlternatePhy::GetCapabilities(&GetInstance());
+
+    capability = AlternatePhy::SelectBest(&GetInstance(), localCapabilities, neighbor->GetAlternatePhyInfo(),
+                                          neighbor->GetAlternatePhyLinkStates(), neighbor->GetLinkInfo());
 
 exit:
     return capability;
@@ -825,6 +831,7 @@ void MeshForwarder::ApplyAlternatePhyForFrame(Mac::TxFrame       &aFrame,
     otAlternatePhyTxInfo           &txInfo = aFrame.mInfo.mTxInfo.mAlternatePhy;
 
     VerifyOrExit(aMessage.IsAlternatePhyAllowed());
+    VerifyOrExit(!aMessage.IsAlternatePhyFallback());
 
     capability = SelectPhyForDestination(aMacDest);
     VerifyOrExit(capability != nullptr);
@@ -832,7 +839,7 @@ void MeshForwarder::ApplyAlternatePhyForFrame(Mac::TxFrame       &aFrame,
     txInfo.mPhyId   = capability->mPhyId;
     txInfo.mChannel = OT_ALTERNATE_PHY_CHANNEL_SAME;
 
-    txInfo.mRequiresDaps = (capability->mFlags & OT_ALTERNATE_PHY_TL3_GFSK_FLAG_CONCURRENT_LISTENING) == 0;
+    txInfo.mRequiresDaps = AlternatePhy::RequiresDaps(*capability);
 
     for (uint8_t index = 0; index < AlternatePhy::kParameterCount; index++)
     {
@@ -1243,6 +1250,10 @@ Neighbor *MeshForwarder::UpdateNeighborOnSentFrame(Mac::TxFrame       &aFrame,
     }
 #endif
 
+#if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
+    VerifyOrExit(!aFrame.mInfo.mTxInfo.mIsAlternatePhy);
+#endif
+
     UpdateNeighborLinkFailures(*neighbor, aError, /* aAllowNeighborRemove */ true, failLimit);
 
 exit:
@@ -1306,6 +1317,9 @@ void MeshForwarder::HandleSentFrame(Mac::TxFrame &aFrame, Error aError)
 {
     Neighbor    *neighbor = nullptr;
     Mac::Address macDest;
+#if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
+    AlternatePhy::PhyId phyId = AlternatePhy::kInvalidPhyId;
+#endif
 
     OT_ASSERT((aError == kErrorNone) || (aError == kErrorChannelAccessFailure) || (aError == kErrorAbort) ||
               (aError == kErrorNoAck));
@@ -1332,13 +1346,29 @@ void MeshForwarder::HandleSentFrame(Mac::TxFrame &aFrame, Error aError)
         neighbor = UpdateNeighborOnSentFrame(aFrame, aError, macDest, /* aIsDataPoll */ false);
     }
 
+#if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
+    if (aFrame.mInfo.mTxInfo.mIsAlternatePhy)
+    {
+        phyId = aFrame.mInfo.mTxInfo.mAlternatePhy.mPhyId;
+    }
+
+    UpdateSendMessage(aError, macDest, neighbor, phyId);
+#else
     UpdateSendMessage(aError, macDest, neighbor);
+#endif
 
 exit:
     return;
 }
 
+#if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
+void MeshForwarder::UpdateSendMessage(Error               aFrameTxError,
+                                      Mac::Address       &aMacDest,
+                                      Neighbor           *aNeighbor,
+                                      AlternatePhy::PhyId aPhyId)
+#else
 void MeshForwarder::UpdateSendMessage(Error aFrameTxError, Mac::Address &aMacDest, Neighbor *aNeighbor)
+#endif
 {
     Error txError = aFrameTxError;
 
@@ -1348,6 +1378,29 @@ void MeshForwarder::UpdateSendMessage(Error aFrameTxError, Mac::Address &aMacDes
 
     if (aFrameTxError != kErrorNone)
     {
+#if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
+        if (AlternatePhy::IsValidPhyId(aPhyId) && !mSendMessage->IsAlternatePhyFallback())
+        {
+            if (aNeighbor != nullptr)
+            {
+                if (aFrameTxError == kErrorNoAck)
+                {
+                    LinkQualityInfo *linkInfo = aNeighbor->GetOrAddAlternatePhyLinkInfo(aPhyId);
+
+                    if (linkInfo != nullptr)
+                    {
+                        linkInfo->AddMessageTxStatus(false);
+                    }
+
+                    aNeighbor->SetAlternatePhyInUse(aPhyId, false);
+                }
+            }
+
+            mSendMessage->SetAlternatePhyFallback(true);
+            ExitNow();
+        }
+#endif
+
         // If the transmission of any fragment frame fails,
         // the overall message transmission is considered
         // as failed
@@ -1373,7 +1426,26 @@ void MeshForwarder::UpdateSendMessage(Error aFrameTxError, Mac::Address &aMacDes
 
     if (aNeighbor != nullptr)
     {
-        aNeighbor->GetLinkInfo().AddMessageTxStatus(mSendMessage->GetTxSuccess());
+#if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
+        if (AlternatePhy::IsValidPhyId(aPhyId))
+        {
+            LinkQualityInfo *linkInfo = aNeighbor->GetOrAddAlternatePhyLinkInfo(aPhyId);
+
+            if (linkInfo != nullptr)
+            {
+                linkInfo->AddMessageTxStatus(mSendMessage->GetTxSuccess());
+
+                if (mSendMessage->GetTxSuccess())
+                {
+                    aNeighbor->SetAlternatePhyInUse(aPhyId, true);
+                }
+            }
+        }
+        else
+#endif
+        {
+            aNeighbor->GetLinkInfo().AddMessageTxStatus(mSendMessage->GetTxSuccess());
+        }
     }
 
 #if !OPENTHREAD_CONFIG_DROP_MESSAGE_ON_FRAGMENT_TX_FAILURE

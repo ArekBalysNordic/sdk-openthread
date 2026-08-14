@@ -37,9 +37,14 @@
 #include <stdint.h>
 
 #include <openthread/platform/alternate_phy.h>
+#include <openthread/platform/radio.h>
 
 #include "common/array.hpp"
+#include "common/code_utils.hpp"
 #include "common/encoding.hpp"
+#include "common/timer.hpp"
+#include "openthread-core-config.h"
+#include "thread/link_quality.hpp"
 
 namespace ot {
 namespace AlternatePhy {
@@ -49,6 +54,7 @@ typedef otAlternatePhyCapability Capability;
 
 static constexpr uint8_t kMaxPhyCount    = OT_ALTERNATE_PHY_MAX_COUNT;
 static constexpr uint8_t kParameterCount = OT_ALTERNATE_PHY_PARAMETER_COUNT;
+static constexpr PhyId   kInvalidPhyId   = 0xff;
 
 namespace Tl3Gfsk {
 
@@ -73,6 +79,18 @@ inline bool IsValid(const Capability &aCapability)
 }
 
 } // namespace Tl3Gfsk
+
+inline bool IsValidPhyId(PhyId aPhyId)
+{
+    switch (aPhyId)
+    {
+    case Tl3Gfsk::kPhyId:
+        return true;
+
+    default:
+        return false;
+    }
+}
 
 inline bool IsValid(const Capability &aCapability)
 {
@@ -99,6 +117,144 @@ inline uint16_t GetMaxPsdu(const Capability &aCapability)
 
     return maxPsdu;
 }
+
+inline bool RequiresDaps(const Capability &aCapability)
+{
+    bool requiresDaps = true;
+
+    switch (aCapability.mPhyId)
+    {
+    case Tl3Gfsk::kPhyId:
+        requiresDaps = (aCapability.mFlags & OT_ALTERNATE_PHY_TL3_GFSK_FLAG_CONCURRENT_LISTENING) == 0;
+        break;
+
+    default:
+        break;
+    }
+
+    return requiresDaps;
+}
+
+/**
+ * Per-PHY link quality and usage state for a neighbor.
+ *
+ */
+struct LinkState
+{
+    PhyId           mPhyId;
+    bool            mInUse;
+    TimeMilli       mNextProbeTime;
+    LinkQualityInfo mLinkInfo;
+};
+
+/**
+ * Stores per-PHY Alternate PHY link state (parallel to @ref Capabilities).
+ *
+ */
+class LinkStates : public Array<LinkState, kMaxPhyCount>
+{
+public:
+    void Clear(void) { Array<LinkState, kMaxPhyCount>::Clear(); }
+
+    LinkState *Find(PhyId aPhyId)
+    {
+        LinkState *match = nullptr;
+
+        for (LinkState &state : *this)
+        {
+            if (state.mPhyId == aPhyId)
+            {
+                match = &state;
+                break;
+            }
+        }
+
+        return match;
+    }
+
+    const LinkState *Find(PhyId aPhyId) const
+    {
+        const LinkState *match = nullptr;
+
+        for (const LinkState &state : *this)
+        {
+            if (state.mPhyId == aPhyId)
+            {
+                match = &state;
+                break;
+            }
+        }
+
+        return match;
+    }
+
+    bool IsInUse(PhyId aPhyId) const
+    {
+        const LinkState *state = Find(aPhyId);
+
+        return (state != nullptr) && state->mInUse;
+    }
+
+    void SetInUse(PhyId aPhyId, bool aInUse)
+    {
+        LinkState *state = Find(aPhyId);
+
+        if (state != nullptr)
+        {
+            state->mInUse = aInUse;
+
+            if (!aInUse)
+            {
+                state->mNextProbeTime = TimerMilli::GetNow() + OPENTHREAD_CONFIG_ALTERNATE_PHY_RETRY_INTERVAL;
+            }
+        }
+    }
+
+    LinkQuality GetLinkQuality(PhyId aPhyId) const
+    {
+        LinkQuality     quality = kLinkQuality0;
+        const LinkState *state  = Find(aPhyId);
+
+        VerifyOrExit(state != nullptr);
+        VerifyOrExit(state->mLinkInfo.GetAverageRss() != OT_RADIO_RSSI_INVALID);
+        quality = state->mLinkInfo.GetLinkQuality();
+
+    exit:
+        return quality;
+    }
+
+    bool IsLinkAcceptable(PhyId aPhyId) const
+    {
+        bool             acceptable = false;
+        const LinkState *state      = Find(aPhyId);
+        const bool       inUse      = (state != nullptr) && state->mInUse;
+        const LinkQuality minQuality =
+            static_cast<LinkQuality>(inUse ? OPENTHREAD_CONFIG_ALTERNATE_PHY_MIN_LINK_QUALITY_CONTINUE
+                                           : OPENTHREAD_CONFIG_ALTERNATE_PHY_MIN_LINK_QUALITY_START);
+
+        // Without any state yet, allow a first probe if its result can be tracked.
+        if (state == nullptr)
+        {
+            ExitNow(acceptable = !IsFull());
+        }
+
+        if (state->mLinkInfo.GetMessageErrorRate() > OPENTHREAD_CONFIG_ALTERNATE_PHY_MAX_MESSAGE_FAILURE_RATE)
+        {
+            VerifyOrExit(TimerMilli::GetNow() >= state->mNextProbeTime);
+        }
+
+        if (state->mLinkInfo.GetAverageRss() == OT_RADIO_RSSI_INVALID)
+        {
+            acceptable = !inUse;
+            ExitNow();
+        }
+
+        acceptable = (state->mLinkInfo.GetLinkQuality() >= minQuality);
+
+    exit:
+        return acceptable;
+    }
+};
 
 /**
  * Stores a set of Alternate PHY capabilities.
@@ -165,6 +321,81 @@ public:
         return PushBack(aCapability);
     }
 };
+
+/**
+ * Gets the Alternate PHY capabilities of the local device.
+ *
+ * @param[in] aInstance  OpenThread instance passed to the platform capability API.
+ *
+ * @returns The local Alternate PHY capabilities.
+ *
+ */
+inline Capabilities GetCapabilities(otInstance *aInstance)
+{
+    Capabilities capabilities;
+    uint8_t      count;
+
+    count = otPlatAlternatePhyGetCapabilities(aInstance, capabilities.GetArrayBuffer(), capabilities.GetMaxSize());
+    capabilities.SetLength((count < capabilities.GetMaxSize()) ? count : capabilities.GetMaxSize());
+
+    return capabilities;
+}
+
+/**
+ * Selects the best Alternate PHY for transmission toward a neighbor.
+ *
+ * Iterates the intersection of @p aLocal and @p aNeighbor capabilities and returns the capability with the
+ * highest local platform priority that passes @ref LinkStates::IsLinkAcceptable(). Link quality breaks a priority tie.
+ * The Primary Link participates in the same comparison and is represented by a `nullptr` return value.
+ *
+ * @param[in] aInstance         OpenThread instance passed to the platform priority API.
+ * @param[in] aLocal            Alternate PHY capabilities of the local device.
+ * @param[in] aNeighbor         Alternate PHY capabilities advertised by the neighbor.
+ * @param[in] aLinkStates       Per-PHY link state for the neighbor.
+ * @param[in] aPrimaryLinkInfo  Link quality information for the Primary Link.
+ *
+ * @returns A pointer to the selected neighbor capability, or `nullptr` if the Primary Link is selected.
+ *
+ */
+inline const Capability *SelectBest(otInstance               *aInstance,
+                                    const Capabilities       &aLocal,
+                                    const Capabilities       &aNeighbor,
+                                    const LinkStates         &aLinkStates,
+                                    const LinkQualityInfo    &aPrimaryLinkInfo)
+{
+    const Capability *best         = nullptr;
+    uint8_t           bestPriority = otPlatAlternatePhyGetPriority(aInstance, OT_ALTERNATE_PHY_ID_PRIMARY_LINK);
+    LinkQuality       bestQuality  = aPrimaryLinkInfo.GetLinkQuality();
+
+    for (const Capability &localCap : aLocal)
+    {
+        const Capability *neighborCap = aNeighbor.Find(localCap.mPhyId);
+        uint8_t           priority;
+        LinkQuality       quality;
+
+        if (neighborCap == nullptr)
+        {
+            continue;
+        }
+
+        if (!aLinkStates.IsLinkAcceptable(localCap.mPhyId))
+        {
+            continue;
+        }
+
+        priority = otPlatAlternatePhyGetPriority(aInstance, localCap.mPhyId);
+        quality = aLinkStates.GetLinkQuality(localCap.mPhyId);
+
+        if ((priority > bestPriority) || ((priority == bestPriority) && (quality > bestQuality)))
+        {
+            best         = neighborCap;
+            bestPriority = priority;
+            bestQuality  = quality;
+        }
+    }
+
+    return best;
+}
 
 } // namespace AlternatePhy
 } // namespace ot

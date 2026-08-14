@@ -66,6 +66,14 @@ extern "C" {
 #define OT_ALTERNATE_PHY_ID_TL3_GFSK 0
 
 /**
+ * PHY Identifier used when querying the local priority of the Primary Link.
+ *
+ * This value is not an Alternate PHY identifier and must not be advertised in an Alternate PHY Capability TLV.
+ *
+ */
+#define OT_ALTERNATE_PHY_ID_PRIMARY_LINK 0xff
+
+/**
  * Maximum number of Alternate PHYs OpenThread queries the platform for.
  *
  */
@@ -192,6 +200,23 @@ typedef struct otAlternatePhyTxInfo
  *
  */
 uint8_t otPlatAlternatePhyGetCapabilities(otInstance *aInstance, otAlternatePhyCapability *aCaps, uint8_t aMaxCount);
+
+/**
+ * Gets the local selection priority for a PHY.
+ *
+ * OpenThread selects the acceptable PHY with the highest priority for transmission. Link quality is used to break a
+ * priority tie.
+ *
+ * @note This is an optional platform API. The weak default implementation gives Alternate PHYs priority 1 and the
+ *       Primary Link priority 0, preserving the default preference for an available Alternate PHY.
+ *
+ * @param[in] aInstance  The OpenThread instance structure.
+ * @param[in] aPhyId     An `OT_ALTERNATE_PHY_ID_*` value or `OT_ALTERNATE_PHY_ID_PRIMARY_LINK`.
+ *
+ * @returns The local selection priority. A larger value indicates a stronger preference.
+ *
+ */
+uint8_t otPlatAlternatePhyGetPriority(otInstance *aInstance, uint8_t aPhyId);
 
 /**
  * @}

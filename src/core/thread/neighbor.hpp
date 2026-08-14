@@ -800,6 +800,27 @@ public:
      *
      */
     const AlternatePhy::Capabilities &GetAlternatePhyInfo(void) const { return mAlternatePhyInfo; }
+
+    const AlternatePhy::LinkStates &GetAlternatePhyLinkStates(void) const { return mAlternatePhyLinkStates; }
+
+    void ClearAlternatePhyLinkStates(void) { mAlternatePhyLinkStates.Clear(); }
+
+    /**
+     * Returns (creating if needed) the link quality state for a given Alternate PHY.
+     *
+     * @param[in] aPhyId  Alternate PHY identifier.
+     *
+     * @returns A pointer to the @ref LinkQualityInfo for @p aPhyId, or `nullptr` if no state can be allocated.
+     *
+     */
+    LinkQualityInfo *GetOrAddAlternatePhyLinkInfo(AlternatePhy::PhyId aPhyId);
+
+    bool IsAlternatePhyInUse(AlternatePhy::PhyId aPhyId) const { return mAlternatePhyLinkStates.IsInUse(aPhyId); }
+
+    void SetAlternatePhyInUse(AlternatePhy::PhyId aPhyId, bool aInUse)
+    {
+        mAlternatePhyLinkStates.SetInUse(aPhyId, aInUse);
+    }
 #endif // OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
 
 protected:
@@ -867,7 +888,8 @@ private:
     uint32_t mConnectionStart;
 #endif
 #if OPENTHREAD_CONFIG_ALTERNATE_PHY_ENABLE
-    AlternatePhy::Capabilities mAlternatePhyInfo; ///< Alternate PHY capabilities advertised by this neighbor via MLE.
+    AlternatePhy::Capabilities mAlternatePhyInfo;       ///< Alternate PHY capabilities advertised by this neighbor.
+    AlternatePhy::LinkStates   mAlternatePhyLinkStates; ///< Per-PHY Alternate PHY link quality and usage state.
 #endif
 };
 
