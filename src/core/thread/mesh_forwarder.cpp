@@ -1383,7 +1383,8 @@ void MeshForwarder::UpdateSendMessage(Error aFrameTxError, Mac::Address &aMacDes
         {
             if (aNeighbor != nullptr)
             {
-                if (aFrameTxError == kErrorNoAck)
+                if ((aFrameTxError == kErrorNoAck) || (aFrameTxError == kErrorAbort) ||
+                    (aFrameTxError == kErrorChannelAccessFailure))
                 {
                     LinkQualityInfo *linkInfo = aNeighbor->GetOrAddAlternatePhyLinkInfo(aPhyId);
 
@@ -1392,7 +1393,10 @@ void MeshForwarder::UpdateSendMessage(Error aFrameTxError, Mac::Address &aMacDes
                         linkInfo->AddMessageTxStatus(false);
                     }
 
-                    aNeighbor->SetAlternatePhyInUse(aPhyId, false);
+                    if ((aFrameTxError == kErrorNoAck) || (aFrameTxError == kErrorAbort))
+                    {
+                        aNeighbor->SetAlternatePhyInUse(aPhyId, false);
+                    }
                 }
             }
 

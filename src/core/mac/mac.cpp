@@ -2072,9 +2072,10 @@ void Mac::UpdateNeighborLinkInfo(Neighbor &aNeighbor, const RxFrame &aRxFrame)
             {
                 linkInfo->AddRss(aRxFrame.GetRssi());
             }
+            return;
         }
 
-        return;
+        // Invalid PHY id from platform, fall through to Primary Link RSS tracking
     }
 #endif
 
